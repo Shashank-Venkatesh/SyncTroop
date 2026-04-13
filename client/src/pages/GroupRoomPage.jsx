@@ -1,0 +1,464 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { BrandMark } from '../components/ui/BrandMark.jsx'
+import { Avatar } from '../components/ui/Avatar.jsx'
+import { Button } from '../components/ui/Button.jsx'
+import { Card } from '../components/ui/Card.jsx'
+import { Tooltip } from '../components/ui/Tooltip.jsx'
+import { TimerDisplay } from '../components/pomodoro/TimerDisplay.jsx'
+import { TasksCard } from '../components/group/TasksCard.jsx'
+import { ChatCard } from '../components/group/ChatCard.jsx'
+import { useApp } from '../context/AppContext.jsx'
+import { useSharedTimer } from '../hooks/useSharedTimer.js'
+import { useSocket } from '../context/SocketContext.jsx'
+import { createRoom, joinRoom } from '../services/api.js'
+import { cn } from '../utils/classNames.js'
+import { getPhaseAccent, getProgressFraction, getPhaseLabel } from '../utils/pomodoro.js'
+
+function getCrewStatusTone(status) {
+  switch (status) {
+    case 'away':
+      return 'bg-accent-400/15 text-accent-100'
+    case 'offline':
+      return 'bg-white/8 text-slate-300'
+    default:
+      return 'bg-emerald-400/15 text-emerald-100'
+  }
+}
+
+function getCrewStatusLabel(status) {
+  switch (status) {
+    case 'away':
+      return 'Away'
+    case 'offline':
+      return 'Offline'
+    default:
+      return 'Online'
+  }
+}
+
+export function GroupRoomPage() {
+  const { roomCode } = useParams()
+  const navigate = useNavigate()
+  const { state, actions } = useApp()
+  const { emitEvent, connectionState } = useSocket()
+  const [roomPanel, setRoomPanel] = useState('rules')
+  const [isRoomCodeCopied, setIsRoomCodeCopied] = useState(false)
+
+  const currentUser = state.user
+  const isCreator = Boolean(state.room?.creatorId && currentUser?.id && state.room.creatorId === currentUser.id)
+  const sharedTimer = useSharedTimer(roomCode)
+
+  const room = useMemo(() => state.room, [state.room])
+  const roomDisplayCode = room?.code || roomCode || ''
+  const connectionLabel = connectionState === 'error' || connectionState === 'disconnected' ? connectionState : 'connected'
+  const crewMembers = useMemo(() => {
+    return [...state.members].sort((left, right) => {
+      if (left.id === currentUser.id) {
+        return -1
+      }
+
+      if (right.id === currentUser.id) {
+        return 1
+      }
+
+      if (left.role === 'creator' && right.role !== 'creator') {
+        return -1
+      }
+
+      if (right.role === 'creator' && left.role !== 'creator') {
+        return 1
+      }
+
+      return left.name.localeCompare(right.name)
+    })
+  }, [currentUser.id, state.members])
+
+  useEffect(() => {
+    let isActive = true
+
+    async function hydrateRoom() {
+      if (!roomCode) {
+        navigate('/group', { replace: true })
+        return
+      }
+
+      if (room?.code === roomCode && state.members.length > 0 && state.tasks.length > 0 && state.messages.length > 0) {
+        return
+      }
+
+      try {
+        const bundle = isCreator
+          ? await createRoom({ roomCode, user: currentUser, roomName: room?.name })
+          : await joinRoom({ roomCode, user: currentUser })
+
+        if (!isActive) {
+          return
+        }
+
+        actions.setRoomBundle(bundle)
+
+        emitEvent(isCreator ? 'create-room' : 'join-room', {
+          ...bundle,
+          senderId: currentUser.id,
+        })
+
+        emitEvent('member-joined', {
+          roomCode: bundle.room.code,
+          member: currentUser,
+          senderId: currentUser.id,
+        })
+      } catch {
+        // Keep the local demo room usable even if the API request fails.
+      }
+    }
+
+    hydrateRoom()
+
+    return () => {
+      isActive = false
+    }
+  }, [actions, currentUser, emitEvent, isCreator, navigate, room?.code, room?.name, roomCode, state.members.length, state.messages.length, state.tasks.length])
+
+  useEffect(() => {
+    if (!isRoomCodeCopied) {
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => setIsRoomCodeCopied(false), 1600)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [isRoomCodeCopied])
+
+  const handleToggleTimer = () => {
+    if (sharedTimer.timer.isRunning) {
+      return
+    }
+
+    sharedTimer.start()
+  }
+
+  const handleResetTimer = () => {
+    sharedTimer.reset()
+  }
+
+  const handleCopyRoomCode = async () => {
+    if (!roomDisplayCode) {
+      return
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(roomDisplayCode)
+      } else {
+        const temporaryInput = document.createElement('textarea')
+        temporaryInput.value = roomDisplayCode
+        temporaryInput.setAttribute('readonly', '')
+        temporaryInput.style.position = 'absolute'
+        temporaryInput.style.left = '-9999px'
+        document.body.appendChild(temporaryInput)
+        temporaryInput.select()
+        document.execCommand('copy')
+        document.body.removeChild(temporaryInput)
+      }
+
+      setIsRoomCodeCopied(true)
+    } catch {
+      setIsRoomCodeCopied(false)
+    }
+  }
+
+  const handleCreateTask = ({ title, assignedToId }) => {
+    const assignee = state.members.find((member) => member.id === assignedToId) || currentUser
+
+    const nextTask = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `task-${Math.random().toString(36).slice(2, 10)}`,
+      title,
+      assignedToId: assignee.id,
+      assignedToName: assignee.name,
+      completed: false,
+      completedBy: null,
+      updatedAt: new Date().toISOString(),
+    }
+
+    actions.upsertTask(nextTask)
+    emitEvent('task-update', {
+      roomCode,
+      task: nextTask,
+      senderId: currentUser.id,
+    })
+  }
+
+  const handleToggleTask = (task) => {
+    const nextTask = {
+      ...task,
+      completed: !task.completed,
+      completedBy: task.completed ? null : currentUser.name,
+      updatedAt: new Date().toISOString(),
+    }
+
+    actions.upsertTask(nextTask)
+    emitEvent('task-update', {
+      roomCode,
+      task: nextTask,
+      senderId: currentUser.id,
+    })
+  }
+
+  const handleSendMessage = ({ message, workFocused }) => {
+    const nextMessage = {
+      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Math.random().toString(36).slice(2, 10)}`,
+      userId: currentUser.id,
+      username: currentUser.name,
+      avatar: currentUser.avatar,
+      message,
+      timestamp: new Date().toISOString(),
+      workFocused,
+    }
+
+    actions.addMessage(nextMessage)
+    emitEvent('chat-message', {
+      roomCode,
+      message: nextMessage,
+      senderId: currentUser.id,
+    })
+  }
+
+  const handleLeaveRoom = () => {
+    emitEvent('member-left', {
+      roomCode,
+      memberId: currentUser.id,
+      senderId: currentUser.id,
+    })
+    actions.clearRoom()
+    navigate('/group')
+  }
+
+  const timerProgress = getProgressFraction(sharedTimer.timer.secondsLeft, sharedTimer.timer.phase === 'focus'
+    ? state.settings.focusMinutes * 60
+    : sharedTimer.timer.phase === 'shortBreak'
+      ? state.settings.shortBreakMinutes * 60
+      : state.settings.longBreakMinutes * 60)
+  const timerTotalSeconds = sharedTimer.timer.phase === 'focus'
+    ? state.settings.focusMinutes * 60
+    : sharedTimer.timer.phase === 'shortBreak'
+      ? state.settings.shortBreakMinutes * 60
+      : state.settings.longBreakMinutes * 60
+  const timerInfoCards = [
+    {
+      label: 'Focus timer',
+      value: `${state.settings.focusMinutes} min`,
+      helper: 'Current work block length',
+    },
+    {
+      label: 'Short break',
+      value: `${state.settings.shortBreakMinutes} min`,
+      helper: 'Between sprint resets',
+    },
+    {
+      label: 'Long break',
+      value: `${state.settings.longBreakMinutes} min`,
+      helper: `After ${state.settings.cyclesBeforeLongBreak} sprints`,
+    },
+    {
+      label: 'Sprints done',
+      value: String(sharedTimer.timer.cycleCount),
+      helper: 'Completed focus rounds',
+    },
+  ]
+
+  return (
+    <div className="relative min-h-screen overflow-hidden px-4 pb-10 pt-6 sm:px-6 lg:px-8">
+      <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(47,212,172,0.15),transparent_28%),radial-gradient(circle_at_top_right,rgba(255,159,45,0.14),transparent_24%),linear-gradient(180deg,rgba(7,17,31,0.96),rgba(5,11,20,1))]" />
+
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <BrandMark />
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+              <span className="text-xs uppercase tracking-[0.24em] text-slate-300">Room {roomDisplayCode}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 rounded-full border border-white/10 bg-white/10 px-2.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-slate-100 hover:bg-white/15"
+                onClick={handleCopyRoomCode}
+                aria-label="Copy room code"
+              >
+                {isRoomCodeCopied ? 'Copied' : 'Copy'}
+              </Button>
+            </div>
+            <span className={cn(
+              'rounded-full border px-3 py-1 text-xs uppercase tracking-[0.24em]',
+              connectionLabel === 'connected'
+                ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+                : 'border-white/10 bg-white/5 text-slate-300',
+            )}>
+              {connectionLabel}
+            </span>
+            <Button variant="secondary" size="sm" onClick={actions.openSettingsModal}>
+              Global settings
+            </Button>
+            <Button variant="danger" size="sm" onClick={handleLeaveRoom}>
+              Leave room
+            </Button>
+          </div>
+        </header>
+
+        <section className="space-y-6">
+          <div className="space-y-3 max-w-3xl">
+            <p className="text-xs uppercase tracking-[0.32em] text-brand-200">Group room</p>
+            <div className="flex flex-wrap items-start gap-3">
+              <h1 className="text-4xl font-semibold text-white sm:text-5xl">{room?.name || 'Realtime focus room'}</h1>
+              <Tooltip
+                label="Room overview"
+                content="The room creator controls a single shared Pomodoro timer. Tasks, members, and chat stay synced through Socket.io listeners."
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)] xl:items-stretch">
+            <TimerDisplay
+              className="h-full"
+              title="Focus session"
+              subtitle="Shared clock for the room. Start and reset stay with the creator, while everyone tracks the same phase."
+              phaseLabel={getPhaseLabel(sharedTimer.timer.phase)}
+              secondsLeft={sharedTimer.timer.secondsLeft}
+              totalSeconds={timerTotalSeconds}
+              progress={timerProgress}
+              accent={getPhaseAccent(sharedTimer.timer.phase)}
+              infoCards={timerInfoCards}
+              actions={
+                <>
+                  <Button onClick={handleToggleTimer} disabled={!sharedTimer.isCreator || sharedTimer.timer.isRunning}>
+                    {sharedTimer.timer.isRunning ? 'Running' : sharedTimer.isCreator ? 'Start timer' : 'Creator only'}
+                  </Button>
+                  <Button variant="secondary" onClick={handleResetTimer} disabled={!sharedTimer.isCreator}>
+                    Reset
+                  </Button>
+                </>
+              }
+            />
+
+            <TasksCard
+              tasks={state.tasks}
+              members={state.members}
+              currentUser={currentUser}
+              isCreator={isCreator}
+              onCreateTask={handleCreateTask}
+              onToggleTask={handleToggleTask}
+            />
+          </div>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr] xl:items-stretch">
+          <Card className="space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.28em] text-brand-200">Room space</p>
+                <h3 className="mt-2 text-xl font-semibold text-white">Rules and crew</h3>
+              </div>
+
+              <div className="inline-grid w-full max-w-[15rem] grid-cols-2 rounded-full border border-white/10 bg-white/5 p-1">
+                {[
+                  { id: 'rules', label: 'Rules' },
+                  { id: 'crew', label: 'Crew' },
+                ].map((option) => {
+                  const active = roomPanel === option.id
+
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setRoomPanel(option.id)}
+                      className={cn(
+                        'w-full rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.24em] transition',
+                        active ? 'bg-brand-400/20 text-white shadow-float' : 'text-slate-400 hover:text-slate-200',
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="min-h-[14rem] rounded-3xl border border-white/10 bg-white/5 p-4 transition-[min-height] duration-300">
+              {roomPanel === 'rules' ? (
+                <div className="space-y-3 text-sm leading-6 text-slate-300">
+                  <p>Only the creator can start the shared timer.</p>
+                  <p>The timer never pauses; it moves from focus to break automatically.</p>
+                  <p>Every task completion, member update, and chat message is mirrored to the room.</p>
+                </div>
+              ) : crewMembers.length > 0 ? (
+                <div className="overflow-x-auto pb-2 pt-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="flex min-w-full justify-center">
+                    <div className="flex w-max gap-3 snap-x snap-mandatory">
+                      {crewMembers.map((member) => (
+                        <div
+                          key={member.id}
+                          className={cn(
+                            'min-w-[12rem] snap-start rounded-3xl border border-white/10 bg-slate-950/55 p-4 shadow-float',
+                            member.id === currentUser.id && 'border-brand-400/30 bg-brand-400/10',
+                          )}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Avatar src={member.avatar} name={member.name} size="sm" />
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-white">{member.name}</p>
+                              <p className="truncate text-xs text-slate-400">{member.email}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex items-center justify-between gap-3">
+                            <span
+                              className={cn(
+                                'rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]',
+                                getCrewStatusTone(member.status),
+                              )}
+                            >
+                              {getCrewStatusLabel(member.status)}
+                            </span>
+                            {member.role === 'creator' ? (
+                              <span className="rounded-full bg-brand-400/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-brand-100">
+                                Creator
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-sm text-slate-400">
+                  No crew members are connected yet.
+                </div>
+              )}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                ['Members', `${state.members.length} joined`],
+                ['Tasks', `${state.tasks.length} active`],
+                ['Chat', `${state.messages.length} messages`],
+                ['Status', connectionState],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-sm text-slate-400">{label}</p>
+                  <p className="mt-2 text-lg font-semibold text-white">{value}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <ChatCard
+            messages={state.messages}
+            currentUser={currentUser}
+            onSendMessage={handleSendMessage}
+            connected={connectionState === 'connected'}
+          />
+        </section>
+      </div>
+    </div>
+  )
+}
