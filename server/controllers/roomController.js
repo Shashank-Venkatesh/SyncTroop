@@ -1,169 +1,155 @@
-import Room from '../models/Room.js';
-import User from '../models/User.js';
+import Room from '../models/Room.js'
+import { generateRoomCode, normalizeRoomCode, serializeRoomBundle } from '../utils/roomUtils.js'
 
-// Helper to generate a random 6-character room code
-const generateRoomCode = () => {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
-};
+const ROOM_CODE_ATTEMPTS = 20
+
+const isDuplicateRoomCodeError = (error) => error?.code === 11000 || error?.codeName === 'DuplicateKey'
+
+const createRoomDocument = async ({ roomName, roomCode, user }) => {
+  let candidateCode = normalizeRoomCode(roomCode)
+
+  for (let attempt = 0; attempt < ROOM_CODE_ATTEMPTS; attempt += 1) {
+    if (!candidateCode) {
+      candidateCode = generateRoomCode()
+    }
+
+    try {
+      return await Room.create({
+        code: candidateCode,
+        name: roomName || `${user.name}'s Room`,
+        creator: user._id,
+        members: [{
+          user: user._id,
+          role: 'creator',
+          status: 'online',
+        }],
+        tasks: [],
+        messages: [],
+      })
+    } catch (error) {
+      if (!isDuplicateRoomCodeError(error)) {
+        throw error
+      }
+
+      candidateCode = ''
+    }
+  }
+
+  throw new Error('Unable to generate a unique room code.')
+}
 
 export const createRoom = async (req, res) => {
-    try {
-        const { roomName, roomCode } = req.body;
-        const code = roomCode || generateRoomCode();
-        
-        const existingRoom = await Room.findOne({ code });
-        if (existingRoom) {
-            return res.status(400).json({ message: 'Room code already exists.' });
-        }
+  try {
+    const { roomName, roomCode } = req.body
+    const room = await createRoomDocument({ roomName, roomCode, user: req.user })
 
-        const room = await Room.create({
-            code,
-            name: roomName || `${req.user.name}'s Room`,
-            creator: req.user._id,
-            members: [{
-                user: req.user._id,
-                role: 'creator',
-                status: 'online'
-            }],
-            tasks: [],
-            messages: []
-        });
-
-        // Fetch completely populated room bundle
-        return fetchRoomBundle(code, req.user, res, true);
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error: ' + error.message });
-    }
-};
+    return fetchRoomBundle(room.code, req.user, res)
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error: ' + error.message })
+  }
+}
 
 export const joinRoom = async (req, res) => {
-    try {
-        const { roomCode } = req.body;
-        if (!roomCode) {
-            return res.status(400).json({ message: 'Room code is required.' });
-        }
+  try {
+    const { roomCode } = req.body
+    const normalizedRoomCode = normalizeRoomCode(roomCode)
 
-        const room = await Room.findOne({ code: roomCode.toUpperCase() });
-        if (!room) {
-            return res.status(404).json({ message: 'Room not found.' });
-        }
-
-        const isMember = room.members.find(m => m.user.toString() === req.user._id.toString());
-        if (!isMember) {
-            room.members.push({
-                user: req.user._id,
-                role: 'member',
-                status: 'online'
-            });
-            await room.save();
-        }
-
-        return fetchRoomBundle(room.code, req.user, res, false);
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error: ' + error.message });
+    if (!normalizedRoomCode) {
+      return res.status(400).json({ message: 'Room code is required.' })
     }
-};
+
+    const room = await Room.findOne({ code: normalizedRoomCode })
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found.' })
+    }
+
+    const member = room.members.find((entry) => entry.user.toString() === req.user._id.toString())
+    if (!member) {
+      room.members.push({
+        user: req.user._id,
+        role: 'member',
+        status: 'online',
+      })
+    } else {
+      member.status = 'online'
+    }
+
+    await room.save()
+
+    return fetchRoomBundle(room.code, req.user, res)
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error: ' + error.message })
+  }
+}
 
 export const getRoomTasks = async (req, res) => {
-    try {
-        const { roomCode } = req.query;
-        const room = await Room.findOne({ code: roomCode }).populate('tasks.assignedTo tasks.completedBy', 'name');
-        if (!room) {
-            return res.status(404).json({ message: 'Room not found.' });
-        }
+  try {
+    const roomCode = normalizeRoomCode(req.query.roomCode)
 
-        const tasks = room.tasks.map(t => ({
-            id: t._id,
-            title: t.title,
-            assignedToId: t.assignedTo?._id,
-            assignedToName: t.assignedTo?.name,
-            completed: t.completed,
-            completedBy: t.completedBy?.name,
-            updatedAt: t.updatedAt
-        }));
-
-        res.status(200).json(tasks);
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error: ' + error.message });
+    if (!roomCode) {
+      return res.status(400).json({ message: 'Room code is required.' })
     }
-};
+
+    const room = await Room.findOne({ code: roomCode }).populate('tasks.assignedTo tasks.completedBy', 'name')
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found.' })
+    }
+
+    const tasks = room.tasks.map((task) => ({
+      id: task._id,
+      title: task.title,
+      assignedToId: task.assignedTo?._id,
+      assignedToName: task.assignedTo?.name,
+      completed: task.completed,
+      completedBy: task.completedBy?.name,
+      updatedAt: task.updatedAt,
+    }))
+
+    res.status(200).json(tasks)
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error: ' + error.message })
+  }
+}
 
 export const getRoomMembers = async (req, res) => {
-    try {
-        const { roomCode } = req.query;
-        const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar');
-        if (!room) {
-            return res.status(404).json({ message: 'Room not found.' });
-        }
+  try {
+    const roomCode = normalizeRoomCode(req.query.roomCode)
 
-        const members = room.members.map(m => ({
-            id: m.user._id,
-            name: m.user.name,
-            email: m.user.email,
-            avatar: m.user.avatar,
-            role: m.role,
-            status: m.status
-        }));
-
-        res.status(200).json(members);
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error: ' + error.message });
+    if (!roomCode) {
+      return res.status(400).json({ message: 'Room code is required.' })
     }
-};
 
-const fetchRoomBundle = async (roomCode, user, res, isCreator) => {
-    // Helper function to return the full state to frontend
-    const room = await Room.findOne({ code: roomCode.toUpperCase() })
-        .populate('creator', 'name')
-        .populate('members.user', 'name email avatar')
-        .populate('tasks.assignedTo tasks.completedBy', 'name')
-        .populate('messages.user', 'name avatar');
-
+    const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
     if (!room) {
-        return res.status(404).json({ message: 'Room not found.' });
+      return res.status(404).json({ message: 'Room not found.' })
     }
 
-    const members = room.members.map(m => ({
-        id: m.user._id,
-        name: m.user.name,
-        email: m.user.email,
-        avatar: m.user.avatar,
-        role: m.role,
-        status: m.status
-    }));
+    const members = room.members.map((member) => ({
+      id: member.user._id,
+      name: member.user.name,
+      email: member.user.email,
+      avatar: member.user.avatar,
+      role: member.role,
+      status: member.status,
+    }))
 
-    const tasks = room.tasks.map(t => ({
-        id: t._id,
-        title: t.title,
-        assignedToId: t.assignedTo?._id,
-        assignedToName: t.assignedTo?.name,
-        completed: t.completed,
-        completedBy: t.completedBy?.name,
-        updatedAt: t.updatedAt
-    }));
+    res.status(200).json(members)
+  } catch (error) {
+    res.status(500).json({ message: 'Server Error: ' + error.message })
+  }
+}
 
-    const messages = room.messages.map(m => ({
-        id: m._id,
-        userId: m.user._id,
-        username: m.user.name,
-        avatar: m.user.avatar,
-        message: m.message,
-        timestamp: m.createdAt,
-        workFocused: m.workFocused
-    }));
+const fetchRoomBundle = async (roomCode, user, res) => {
+  const normalizedRoomCode = normalizeRoomCode(roomCode)
+  const room = await Room.findOne({ code: normalizedRoomCode })
+    .populate('creator', 'name')
+    .populate('members.user', 'name email avatar')
+    .populate('tasks.assignedTo tasks.completedBy', 'name')
+    .populate('messages.user', 'name avatar')
 
-    res.status(200).json({
-        room: {
-            code: room.code,
-            name: room.name,
-            creatorId: room.creator._id,
-            creatorName: room.creator.name,
-            isCreator: room.creator._id.toString() === user._id.toString(),
-            createdAt: room.createdAt
-        },
-        members,
-        tasks,
-        messages,
-        sharedTimer: room.sharedTimer
-    });
-};
+  if (!room) {
+    return res.status(404).json({ message: 'Room not found.' })
+  }
+
+  return res.status(200).json(serializeRoomBundle(room, user))
+}

@@ -1,18 +1,24 @@
 import express from 'express';
+import { createServer } from 'node:http';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
 import roomRoutes from './routes/roomRoutes.js';
+import { initializeSocket } from './socket.js';
 
 dotenv.config();
 
 const app = express();
+const clientOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+const httpServer = createServer(app);
+
+initializeSocket(httpServer, { origin: clientOrigin });
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173', // Adjust this if your frontend runs on a different port
+  origin: clientOrigin,
   credentials: true,
 }));
 app.use(express.json());
@@ -28,6 +34,6 @@ mongoose.connect(process.env.MONGO_URI)
   .catch((err) => console.error('MongoDB connection error:', err));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
