@@ -1,5 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io'
+import jwt from 'jsonwebtoken'
 import Room from './models/Room.js'
+import User from './models/User.js'
 import { normalizeRoomCode } from './utils/roomUtils.js'
 
 function toId(value) {
@@ -10,28 +12,88 @@ function toId(value) {
   return value ? String(value) : ''
 }
 
-function joinSocketRoom(socket, payload = {}) {
-  const roomCode = normalizeRoomCode(payload.roomCode || payload.room?.code || payload.code)
+function parseCookies(cookieHeader = '') {
+  if (!cookieHeader) {
+    return {}
+  }
+
+  return cookieHeader.split(';').reduce((accumulator, pair) => {
+    const [rawKey, ...rawValue] = pair.split('=')
+    const key = rawKey?.trim()
+
+    if (!key) {
+      return accumulator
+    }
+
+    accumulator[key] = decodeURIComponent(rawValue.join('=').trim())
+    return accumulator
+  }, {})
+}
+
+function extractSocketToken(socket) {
+  const authorization = socket.handshake.headers?.authorization
+
+  if (authorization && authorization.startsWith('Bearer ')) {
+    return authorization.slice(7).trim()
+  }
+
+  const cookies = parseCookies(socket.handshake.headers?.cookie)
+
+  if (cookies.token) {
+    return cookies.token
+  }
+
+  return typeof socket.handshake.auth?.token === 'string'
+    ? socket.handshake.auth.token
+    : ''
+}
+
+function resolveRoomCode(socket, payload = {}) {
+  return normalizeRoomCode(payload.roomCode || payload.room?.code || payload.code || socket.data.roomCode)
+}
+
+async function canAccessRoom(roomCode, userId) {
+  if (!roomCode || !userId) {
+    return false
+  }
+
+  const room = await Room.findOne({
+    code: roomCode,
+    'members.user': userId,
+  }).select('_id')
+
+  return Boolean(room)
+}
+
+async function joinSocketRoom(socket, payload = {}, eventName = 'unknown') {
+  const roomCode = resolveRoomCode(socket, payload)
 
   if (!roomCode) {
+    return ''
+  }
+
+  const hasRoomAccess = await canAccessRoom(roomCode, socket.data.userId)
+
+  if (!hasRoomAccess) {
+    console.warn(
+      `[Socket] ${eventName}: denied room access for user ${socket.data.userId} to room ${roomCode}`,
+    )
+    socket.emit('socket-error', {
+      event: eventName,
+      message: 'Not authorized for this room.',
+    })
     return ''
   }
 
   socket.join(roomCode)
   socket.data.roomCode = roomCode
 
-  const senderId = toId(payload.senderId || payload.member?.id || payload.memberId || payload.user?.id || payload.room?.creatorId)
-
-  if (senderId) {
-    socket.data.userId = senderId
-  }
-
   return roomCode
 }
 
-function normalizeMemberPayload(payload = {}) {
+function normalizeMemberPayload(payload = {}, authenticatedUserId = '') {
   const source = payload.member && typeof payload.member === 'object' ? payload.member : payload
-  const id = toId(source.id || source._id || source.userId || payload.senderId)
+  const id = toId(authenticatedUserId)
   const roomCreatorId = toId(payload.room?.creatorId || payload.room?.creator)
 
   return {
@@ -50,7 +112,7 @@ function normalizeMessagePayload(payload = {}) {
 
   return {
     id: toId(source.id || source._id),
-    userId: toId(source.userId || source.user?.id || payload.senderId),
+    userId: toId(payload.authenticatedUserId),
     username: String(source.username || source.user?.name || '').trim(),
     avatar: source.avatar ? String(source.avatar) : source.user?.avatar ? String(source.user.avatar) : '',
     message: messageText,
@@ -174,37 +236,105 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
     },
   })
 
+  io.use(async (socket, next) => {
+    try {
+      const token = extractSocketToken(socket)
+
+      if (!token) {
+        return next(new Error('UNAUTHORIZED'))
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET)
+      const user = await User.findById(decoded.id).select('_id')
+
+      if (!user) {
+        return next(new Error('UNAUTHORIZED'))
+      }
+
+      socket.data.userId = user._id.toString()
+      return next()
+    } catch {
+      return next(new Error('UNAUTHORIZED'))
+    }
+  })
+
   io.on('connection', (socket) => {
-    socket.on('create-room', (payload = {}) => {
-      joinSocketRoom(socket, payload)
+    console.log(`[Socket] Authenticated connection: ${socket.id} (user: ${socket.data.userId})`)
+
+    socket.on('create-room', async (payload = {}) => {
+      const roomCode = await joinSocketRoom(socket, payload, 'create-room')
+
+      if (!roomCode) {
+        return
+      }
+
+      console.log(`[Socket] create-room: user ${socket.data.userId} joined room ${roomCode}, socket: ${socket.id}`)
     })
 
-    socket.on('join-room', (payload = {}) => {
-      joinSocketRoom(socket, payload)
+    socket.on('join-room', async (payload = {}) => {
+      const roomCode = await joinSocketRoom(socket, payload, 'join-room')
+
+      if (roomCode) {
+        console.log(`[Socket] join-room: user ${socket.data.userId} joined room ${roomCode}, socket: ${socket.id}`)
+      }
+
+      if (!roomCode) return
+
+      try {
+        // Send initial member list to the joining user
+        const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
+        if (room && room.members.length > 0) {
+          const membersList = room.members.map((m) => ({
+            id: m.user._id.toString(),
+            name: m.user.name || '',
+            email: m.user.email || '',
+            avatar: m.user.avatar || '',
+            role: m.role,
+            status: m.status,
+          }))
+          
+          console.log(`[Socket] Sending initial member list to ${socket.data.userId} in room ${roomCode}`)
+          socket.emit('initial-member-list', {
+            roomCode,
+            members: membersList,
+          })
+        }
+        // Note: member-joined is already broadcast by the API's joinRoom endpoint
+        // No need to broadcast again here to avoid duplicates
+      } catch (error) {
+        console.error(`[Socket] Error handling join-room:`, error)
+      }
     })
 
     socket.on('member-joined', async (payload = {}) => {
       try {
-        const roomCode = joinSocketRoom(socket, payload)
+        const roomCode = await joinSocketRoom(socket, payload, 'member-joined')
+        console.log(`[Socket] member-joined event: user ${socket.data.userId} in room ${roomCode}`, payload)
 
         if (!roomCode) {
+          console.warn(`[Socket] member-joined: invalid room code`)
           return
         }
 
-        const member = normalizeMemberPayload(payload)
+        const member = normalizeMemberPayload(payload, socket.data.userId)
 
         if (!member.id) {
+          console.warn(`[Socket] member-joined: invalid member id`)
           return
         }
 
         const savedMember = await upsertRoomMember(roomCode, member)
 
         if (savedMember) {
-          socket.to(roomCode).emit('member-joined', {
+          console.log(`[Socket] Broadcasting member-joined to room ${roomCode}:`, savedMember)
+          console.log(`[Broadcast] 📢 User "${savedMember.name}" (ID: ${savedMember.id}) JOINED room "${roomCode}"`)
+          console.log(`[Broadcast] 🎯 Sending to all clients in room: ${roomCode}`)
+          io.to(roomCode).emit('member-joined', {
             roomCode,
             member: savedMember,
-            senderId: payload.senderId || savedMember.id,
+            senderId: socket.data.userId,
           })
+          console.log(`[Broadcast] ✅ Broadcast complete for join event in room: ${roomCode}`)
         }
       } catch (error) {
         handleSocketError('member-joined', error)
@@ -213,13 +343,13 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
     socket.on('member-left', async (payload = {}) => {
       try {
-        const roomCode = joinSocketRoom(socket, payload)
+        const roomCode = await joinSocketRoom(socket, payload, 'member-left')
 
         if (!roomCode) {
           return
         }
 
-        const memberId = toId(payload.memberId || payload.member?.id || payload.id || socket.data.userId || payload.senderId)
+        const memberId = toId(socket.data.userId)
 
         if (!memberId) {
           return
@@ -228,11 +358,14 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         const updated = await markRoomMemberAway(roomCode, memberId)
 
         if (updated) {
+          console.log(`[Broadcast] 📢 User (ID: ${memberId}) LEFT room "${roomCode}"`)
+          console.log(`[Broadcast] 🎯 Sending to all clients in room: ${roomCode}`)
           socket.to(roomCode).emit('member-left', {
             roomCode,
             memberId,
-            senderId: payload.senderId || memberId,
+            senderId: socket.data.userId,
           })
+          console.log(`[Broadcast] ✅ Broadcast complete for leave event in room: ${roomCode}`)
         }
       } catch (error) {
         handleSocketError('member-left', error)
@@ -241,13 +374,13 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
     socket.on('chat-message', async (payload = {}) => {
       try {
-        const roomCode = joinSocketRoom(socket, payload)
+        const roomCode = await joinSocketRoom(socket, payload, 'chat-message')
 
         if (!roomCode) {
           return
         }
 
-        const message = normalizeMessagePayload(payload)
+        const message = normalizeMessagePayload({ ...payload, authenticatedUserId: socket.data.userId })
 
         if (!message.userId || !message.message) {
           return
@@ -259,7 +392,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
           socket.to(roomCode).emit('chat-message', {
             roomCode,
             message: savedMessage,
-            senderId: payload.senderId || savedMessage.userId,
+            senderId: socket.data.userId,
           })
         }
       } catch (error) {
@@ -267,9 +400,9 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
       }
     })
 
-    socket.on('task-update', (payload = {}) => {
+    socket.on('task-update', async (payload = {}) => {
       try {
-        const roomCode = joinSocketRoom(socket, payload)
+        const roomCode = await joinSocketRoom(socket, payload, 'task-update')
 
         if (!roomCode) {
           return
@@ -283,7 +416,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
     socket.on('start-timer', async (payload = {}) => {
       try {
-        const roomCode = joinSocketRoom(socket, payload)
+        const roomCode = await joinSocketRoom(socket, payload, 'start-timer')
 
         if (!roomCode) {
           return
@@ -292,10 +425,10 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         const timer = normalizeTimerPayload(payload)
         await updateRoomTimer(roomCode, timer)
 
-        socket.to(roomCode).emit('start-timer', {
+        io.to(roomCode).emit('start-timer', {
           roomCode,
           timer,
-          senderId: payload.senderId || timer.startedBy,
+          senderId: socket.data.userId,
         })
       } catch (error) {
         handleSocketError('start-timer', error)
@@ -304,7 +437,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
     socket.on('sync-timer', async (payload = {}) => {
       try {
-        const roomCode = joinSocketRoom(socket, payload)
+        const roomCode = await joinSocketRoom(socket, payload, 'sync-timer')
 
         if (!roomCode) {
           return
@@ -313,14 +446,18 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         const timer = normalizeTimerPayload(payload)
         await updateRoomTimer(roomCode, timer)
 
-        socket.to(roomCode).emit('sync-timer', {
+        io.to(roomCode).emit('sync-timer', {
           roomCode,
           timer,
-          senderId: payload.senderId || timer.startedBy,
+          senderId: socket.data.userId,
         })
       } catch (error) {
         handleSocketError('sync-timer', error)
       }
+    })
+
+    socket.on('disconnect', () => {
+      console.log(`[Socket] Disconnected: ${socket.id} (user: ${socket.data.userId})`)
     })
   })
 

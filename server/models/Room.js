@@ -99,6 +99,23 @@ const roomSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+// Pre-save hook to prevent duplicate members
+roomSchema.pre('save', async function() {
+  // Remove duplicate members (same user ID)
+  const seenUserIds = new Set();
+  const uniqueMembers = [];
+  
+  for (const member of this.members) {
+    const userId = member.user.toString();
+    if (!seenUserIds.has(userId)) {
+      seenUserIds.add(userId);
+      uniqueMembers.push(member);
+    }
+  }
+  
+  this.members = uniqueMembers;
+});
+
 const Room = mongoose.model('Room', roomSchema);
 
 export default Room;

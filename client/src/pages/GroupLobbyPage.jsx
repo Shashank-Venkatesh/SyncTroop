@@ -5,13 +5,11 @@ import { Button } from '../components/ui/Button.jsx'
 import { Card } from '../components/ui/Card.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { useApp } from '../context/AppContext.jsx'
-import { useSocket } from '../context/SocketContext.jsx'
 import { createQuickRoomCode } from '../utils/mockData.js'
 import { createRoom, joinRoom } from '../services/api.js'
 
 export function GroupLobbyPage() {
   const { state, actions } = useApp()
-  const { emitEvent } = useSocket()
   const navigate = useNavigate()
   const [roomName, setRoomName] = useState(`${state.user.name.split(' ')[0]}'s room`)
   const [roomCode, setRoomCode] = useState('')
@@ -36,8 +34,7 @@ export function GroupLobbyPage() {
       const bundle = await createRoom(payload)
 
       actions.setRoomBundle(bundle)
-      emitEvent('create-room', { ...bundle, senderId: state.user.id })
-      emitEvent('member-joined', { roomCode: bundle.room.code, member: state.user, senderId: state.user.id })
+
       navigate(`/group/${bundle.room.code}`)
       setStatus(`Room ${bundle.room.code} created.`)
     } catch (requestError) {
@@ -60,16 +57,17 @@ export function GroupLobbyPage() {
     setError('')
 
     try {
-      const bundle = await joinRoom({
+      const response = await joinRoom({
         roomCode: normalizedRoomCode,
         user: state.user,
       })
 
-      actions.setRoomBundle(bundle)
-      emitEvent('join-room', { ...bundle, senderId: state.user.id })
-      emitEvent('member-joined', { roomCode: bundle.room.code, member: state.user, senderId: state.user.id })
-      navigate(`/group/${bundle.room.code}`)
-      setStatus(`Joined room ${bundle.room.code}.`)
+      const { room } = response
+
+      actions.setRoomBundle(response)
+
+      navigate(`/group/${room.code}`)
+      setStatus(`Joined room ${room.code}.`)
     } catch (requestError) {
       setError(requestError?.response?.data?.message || 'Could not join that room.')
     } finally {
@@ -91,14 +89,26 @@ export function GroupLobbyPage() {
 
         <section className="max-w-3xl space-y-4">
           <p className="text-xs uppercase tracking-[0.32em] text-brand-200">Group lobby</p>
-          <h1 className="text-4xl font-semibold text-white sm:text-5xl">Create a room or jump into an existing one.</h1>
+          <h1 className="text-4xl font-semibold text-white sm:text-5xl">
+            Create a room or jump into an existing one.
+          </h1>
           <p className="max-w-2xl text-base leading-7 text-slate-300">
-            The room creator controls the timer. Everyone sees the same countdown, shared tasks, member presence, and realtime chat.
+            The room creator controls the timer. Everyone sees the same countdown, shared tasks,
+            member presence, and realtime chat.
           </p>
         </section>
 
-        {status ? <div className="rounded-3xl border border-brand-400/20 bg-brand-400/10 px-4 py-4 text-sm text-brand-50">{status}</div> : null}
-        {error ? <div className="rounded-3xl border border-rose-400/20 bg-rose-500/10 px-4 py-4 text-sm text-rose-100">{error}</div> : null}
+        {status ? (
+          <div className="rounded-3xl border border-brand-400/20 bg-brand-400/10 px-4 py-4 text-sm text-brand-50">
+            {status}
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-3xl border border-rose-400/20 bg-rose-500/10 px-4 py-4 text-sm text-rose-100">
+            {error}
+          </div>
+        ) : null}
 
         <div className="grid gap-6 lg:grid-cols-2">
           <Card className="space-y-5">
@@ -114,12 +124,18 @@ export function GroupLobbyPage() {
               placeholder="Thursday planning room"
             />
 
-            <Button fullWidth size="lg" onClick={handleCreateRoom} disabled={busyAction === 'create'}>
+            <Button
+              fullWidth
+              size="lg"
+              onClick={handleCreateRoom}
+              disabled={busyAction === 'create'}
+            >
               {busyAction === 'create' ? 'Creating...' : 'Create Room'}
             </Button>
 
             <p className="text-sm leading-6 text-slate-400">
-              A fresh room code is generated automatically. The creator starts the synced timer and can assign tasks.
+              A fresh room code is generated automatically. The creator starts the synced timer
+              and can assign tasks.
             </p>
           </Card>
 
@@ -137,12 +153,19 @@ export function GroupLobbyPage() {
               maxLength={8}
             />
 
-            <Button fullWidth size="lg" variant="secondary" onClick={handleJoinRoom} disabled={busyAction === 'join'}>
+            <Button
+              fullWidth
+              size="lg"
+              variant="secondary"
+              onClick={handleJoinRoom}
+              disabled={busyAction === 'join'}
+            >
               {busyAction === 'join' ? 'Joining...' : 'Join Room'}
             </Button>
 
             <p className="text-sm leading-6 text-slate-400">
-              Everyone in the room shares timer updates, task state, member presence, and chat messages in realtime.
+              Everyone in the room shares timer updates, task state, member presence, and chat
+              messages in realtime.
             </p>
           </Card>
         </div>

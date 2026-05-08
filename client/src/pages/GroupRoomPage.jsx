@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { BrandMark } from '../components/ui/BrandMark.jsx'
 import { Avatar } from '../components/ui/Avatar.jsx'
@@ -10,7 +10,7 @@ import { TasksCard } from '../components/group/TasksCard.jsx'
 import { ChatCard } from '../components/group/ChatCard.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useSharedTimer } from '../hooks/useSharedTimer.js'
-import { useSocket } from '../context/SocketContext.jsx'
+import { useSocket } from '../hooks/useSocket.js'
 import { createRoom, joinRoom } from '../services/api.js'
 import { cn } from '../utils/classNames.js'
 import { getPhaseAccent, getProgressFraction, getPhaseLabel } from '../utils/pomodoro.js'
@@ -44,6 +44,7 @@ export function GroupRoomPage() {
   const { emitEvent, connectionState } = useSocket()
   const [roomPanel, setRoomPanel] = useState('rules')
   const [isRoomCodeCopied, setIsRoomCodeCopied] = useState(false)
+  const socketRoomSyncKeyRef = useRef('')
 
   const currentUser = state.user
   const isCreator = Boolean(state.room?.creatorId && currentUser?.id && state.room.creatorId === currentUser.id)
@@ -74,40 +75,41 @@ export function GroupRoomPage() {
     })
   }, [currentUser.id, state.members])
 
+  const hydratedRoomRef = useRef(null)
+  const currentUserRef = useRef(currentUser)
+
+  // Keep currentUserRef in sync
+  useEffect(() => {
+    currentUserRef.current = currentUser
+  }, [currentUser])
+
   useEffect(() => {
     let isActive = true
 
     async function hydrateRoom() {
-      if (!roomCode) {
+      const user = currentUserRef.current
+      
+      if (!roomCode || !user) {
         navigate('/group', { replace: true })
         return
       }
 
-      if (room?.code === roomCode && state.members.length > 0 && state.tasks.length > 0 && state.messages.length > 0) {
+      // Only hydrate once per room to avoid duplicate API calls
+      if (hydratedRoomRef.current === roomCode) {
         return
       }
+      hydratedRoomRef.current = roomCode
 
       try {
-        const bundle = isCreator
-          ? await createRoom({ roomCode, user: currentUser, roomName: room?.name })
-          : await joinRoom({ roomCode, user: currentUser })
+        // Call joinRoom to ensure user is synced with server's member list
+        const bundle = await joinRoom({ roomCode, user })
 
         if (!isActive) {
           return
         }
 
+        // Set the room bundle with all the data from the server
         actions.setRoomBundle(bundle)
-
-        emitEvent(isCreator ? 'create-room' : 'join-room', {
-          ...bundle,
-          senderId: currentUser.id,
-        })
-
-        emitEvent('member-joined', {
-          roomCode: bundle.room.code,
-          member: currentUser,
-          senderId: currentUser.id,
-        })
       } catch {
         // Keep the local demo room usable even if the API request fails.
       }
@@ -118,7 +120,46 @@ export function GroupRoomPage() {
     return () => {
       isActive = false
     }
-  }, [actions, currentUser, emitEvent, isCreator, navigate, room?.code, room?.name, roomCode, state.members.length, state.messages.length, state.tasks.length])
+  }, [roomCode, navigate, actions])
+
+  useEffect(() => {
+    if (connectionState !== 'connected') {
+      socketRoomSyncKeyRef.current = ''
+      return
+    }
+
+    if (!roomCode || !currentUser?.id || !room?.code) {
+      return
+    }
+
+    const syncKey = `${roomCode}:${currentUser.id}`
+
+    if (socketRoomSyncKeyRef.current === syncKey) {
+      return
+    }
+
+    socketRoomSyncKeyRef.current = syncKey
+
+    emitEvent('join-room', {
+      roomCode,
+      senderId: currentUser.id,
+    })
+  }, [connectionState, currentUser?.id, emitEvent, room?.code, roomCode])
+
+  useEffect(() => {
+    if (!room?.code || room?.code !== roomCode) {
+      socketRoomSyncKeyRef.current = ''
+    }
+  }, [room?.code, roomCode])
+
+  // Reset hydration state when component unmounts or room changes
+  useEffect(() => {
+    return () => {
+      if (roomCode !== hydratedRoomRef.current) {
+        hydratedRoomRef.current = null
+      }
+    }
+  }, [roomCode])
 
   useEffect(() => {
     if (!isRoomCodeCopied) {
@@ -169,11 +210,16 @@ export function GroupRoomPage() {
   }
 
   const handleCreateTask = ({ title, assignedToId }) => {
+    // Validate task title
+    if (!title || !title.trim()) {
+      return
+    }
+
     const assignee = state.members.find((member) => member.id === assignedToId) || currentUser
 
     const nextTask = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `task-${Math.random().toString(36).slice(2, 10)}`,
-      title,
+      title: title.trim(),
       assignedToId: assignee.id,
       assignedToName: assignee.name,
       completed: false,
@@ -206,12 +252,17 @@ export function GroupRoomPage() {
   }
 
   const handleSendMessage = ({ message, workFocused }) => {
+    // Validate message
+    if (!message || !message.trim()) {
+      return
+    }
+
     const nextMessage = {
       id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Math.random().toString(36).slice(2, 10)}`,
       userId: currentUser.id,
       username: currentUser.name,
       avatar: currentUser.avatar,
-      message,
+      message: message.trim(),
       timestamp: new Date().toISOString(),
       workFocused,
     }
@@ -230,6 +281,7 @@ export function GroupRoomPage() {
       memberId: currentUser.id,
       senderId: currentUser.id,
     })
+    hydratedRoomRef.current = null // Reset hydration state when leaving
     actions.clearRoom()
     navigate('/group')
   }

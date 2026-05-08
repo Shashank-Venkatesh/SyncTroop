@@ -6,6 +6,10 @@ const STORAGE_KEYS = {
   user: 'synctroop:user',
   settings: 'synctroop:settings',
   room: 'synctroop:room',
+  members: 'synctroop:members',
+  tasks: 'synctroop:tasks',
+  messages: 'synctroop:messages',
+  sharedTimer: 'synctroop:sharedTimer',
 }
 
 const defaultSettings = {
@@ -35,10 +39,17 @@ const initialSettings = {
   ...readStoredValue(STORAGE_KEYS.settings, {}),
 }
 
+const storedRoom = readStoredValue(STORAGE_KEYS.room, null)
+
 const initialState = {
   user: readStoredValue(STORAGE_KEYS.user, createDemoUser({ name: 'Guest Pilot', email: 'guest@synctroop.app' })),
   settings: initialSettings,
-  room: readStoredValue(STORAGE_KEYS.room, null),
+  room: storedRoom,
+  // Only load members/tasks/messages from storage if we have a room, otherwise start fresh
+  members: storedRoom ? readStoredValue(STORAGE_KEYS.members, []) : [],
+  tasks: storedRoom ? readStoredValue(STORAGE_KEYS.tasks, []) : [],
+  messages: storedRoom ? readStoredValue(STORAGE_KEYS.messages, []) : [],
+  sharedTimer: storedRoom ? readStoredValue(STORAGE_KEYS.sharedTimer, null) || createInitialSharedTimer(initialSettings) : createInitialSharedTimer(initialSettings),
   roomLoading: {
     open: false,
     title: 'Prism loading',
@@ -52,10 +63,7 @@ const initialState = {
     mode: 'solo',
   },
   settingsModalOpen: false,
-  members: [],
-  tasks: [],
-  messages: [],
-  sharedTimer: createInitialSharedTimer(initialSettings),
+  notifications: [],
 }
 
 const AppContext = createContext(null)
@@ -244,6 +252,27 @@ function appReducer(state, action) {
         messages: action.payload,
       }
 
+    case 'ADD_NOTIFICATION': {
+      const notification = {
+        id: action.payload.id,
+        type: action.payload.type || 'info',
+        title: action.payload.title || 'Room update',
+        message: action.payload.message || '',
+        duration: action.payload.duration || 3500,
+      }
+
+      return {
+        ...state,
+        notifications: [notification, ...state.notifications].slice(0, 4),
+      }
+    }
+
+    case 'REMOVE_NOTIFICATION':
+      return {
+        ...state,
+        notifications: state.notifications.filter((notification) => notification.id !== action.payload),
+      }
+
     case 'SET_SHARED_TIMER':
       return {
         ...state,
@@ -358,6 +387,50 @@ export function AppProvider({ children }) {
     }
   }, [state.room])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (state.members.length > 0) {
+      window.localStorage.setItem(STORAGE_KEYS.members, JSON.stringify(state.members))
+    } else {
+      window.localStorage.removeItem(STORAGE_KEYS.members)
+    }
+  }, [state.members])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (state.tasks.length > 0) {
+      window.localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(state.tasks))
+    } else {
+      window.localStorage.removeItem(STORAGE_KEYS.tasks)
+    }
+  }, [state.tasks])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (state.messages.length > 0) {
+      window.localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(state.messages))
+    } else {
+      window.localStorage.removeItem(STORAGE_KEYS.messages)
+    }
+  }, [state.messages])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.setItem(STORAGE_KEYS.sharedTimer, JSON.stringify(state.sharedTimer))
+  }, [state.sharedTimer])
+
   const actions = useMemo(() => {
     return {
       openAuthModal: (mode = 'solo', tab = 'login') => dispatch({ type: 'OPEN_AUTH_MODAL', payload: { mode, tab } }),
@@ -379,6 +452,8 @@ export function AppProvider({ children }) {
       upsertTask: (task) => dispatch({ type: 'UPSERT_TASK', payload: task }),
       addMessage: (message) => dispatch({ type: 'ADD_MESSAGE', payload: message }),
       setMessages: (messages) => dispatch({ type: 'SET_MESSAGES', payload: messages }),
+      addNotification: (notification) => dispatch({ type: 'ADD_NOTIFICATION', payload: notification }),
+      removeNotification: (notificationId) => dispatch({ type: 'REMOVE_NOTIFICATION', payload: notificationId }),
       setSharedTimer: (timer) => dispatch({ type: 'SET_SHARED_TIMER', payload: timer }),
       startSharedTimer: (startedBy) => dispatch({ type: 'START_SHARED_TIMER', payload: { startedBy } }),
       resetSharedTimer: () => dispatch({ type: 'RESET_SHARED_TIMER' }),

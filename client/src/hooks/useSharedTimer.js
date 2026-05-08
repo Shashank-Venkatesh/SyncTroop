@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useApp } from '../context/AppContext.jsx'
-import { useSocket } from '../context/SocketContext.jsx'
+import { useSocket } from './useSocket.js'
 import { getPhaseDuration } from '../utils/pomodoro.js'
 
 export function useSharedTimer(roomCode) {
@@ -35,7 +35,7 @@ export function useSharedTimer(roomCode) {
         senderId: currentUser.id,
       })
     }
-  }, [roomCode, currentUser, timer, isCreator, emitEvent])
+  }, [roomCode, timer.isRunning, timer.phase, timer.secondsLeft, timer.cycleCount, isCreator, emitEvent, currentUser])
 
   const start = () => {
     if (!isCreator || timer.isRunning || !currentUser) {

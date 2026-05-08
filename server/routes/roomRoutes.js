@@ -1,12 +1,17 @@
-import express from 'express';
-import { createRoom, joinRoom, getRoomTasks, getRoomMembers } from '../controllers/roomController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import express from 'express'
+import { createRoomController } from '../controllers/roomController.js'
+import { protect } from '../middleware/authMiddleware.js'
 
-const router = express.Router();
+export function createRoomRouter(io) {
+  const router = express.Router()
+  const { createRoom, joinRoom, getRoomTasks, getRoomMembers } = createRoomController(io)
 
-router.post('/create', protect, createRoom);
-router.post('/join', protect, joinRoom);
-router.get('/tasks', protect, getRoomTasks);
-router.get('/members', protect, getRoomMembers);
+  router.use(protect)
 
-export default router;
+  router.post('/create', createRoom)
+  router.post('/join', joinRoom)
+  router.get('/tasks', getRoomTasks)
+  router.get('/members', getRoomMembers)
+
+  return router
+}

@@ -10,6 +10,22 @@ export const signupUser = async (req, res) => {
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Invalid email format.' });
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters.' });
+    }
+
+    // Validate name length
+    if (name.trim().length < 2) {
+      return res.status(400).json({ message: 'Name must be at least 2 characters.' });
+    }
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists.' });
@@ -21,8 +37,8 @@ export const signupUser = async (req, res) => {
     const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`;
 
     const user = await User.create({
-      name,
-      email,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
       password: hashedPassword,
       avatar: fallbackAvatar,
     });
@@ -61,7 +77,7 @@ export const loginUser = async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required.' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.trim().toLowerCase() });
     if (!user) {
       return res.status(400).json({ message: 'Invalid credentials.' });
     }

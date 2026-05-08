@@ -1,27 +1,68 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useApp } from './AppContext.jsx'
 
-const SocketContext = createContext(null)
+export const SocketContext = createContext(null)
 
 function getSocketUrl() {
-  return import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || window.location.origin
+  const explicitSocketUrl = import.meta.env.VITE_SOCKET_URL
+
+  if (explicitSocketUrl) {
+    return explicitSocketUrl
+  }
+
+  const explicitApiUrl = import.meta.env.VITE_API_URL
+
+  if (explicitApiUrl && /^https?:\/\//i.test(explicitApiUrl)) {
+    try {
+      const parsedUrl = new URL(explicitApiUrl)
+
+      if (parsedUrl.pathname.endsWith('/api')) {
+        parsedUrl.pathname = parsedUrl.pathname.slice(0, -4) || '/'
+      }
+
+      parsedUrl.search = ''
+      parsedUrl.hash = ''
+
+      return `${parsedUrl.origin}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')}`
+    } catch {
+      // Fall through to the development/backend default below.
+    }
+  }
+
+  return import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin
 }
 
 export function SocketProvider({ children }) {
   const { state, actions } = useApp()
   const [socketInstance] = useState(() =>
     io(getSocketUrl(), {
-      autoConnect: true,
+      autoConnect: false,
+      withCredentials: true,
       transports: ['websocket', 'polling'],
     }),
   )
-  const [connectionState, setConnectionState] = useState('connecting')
+  const [connectionState, setConnectionState] = useState('disconnected')
   const currentUserIdRef = useRef(state.user?.id)
 
   useEffect(() => {
     currentUserIdRef.current = state.user?.id
   }, [state.user?.id])
+
+  useEffect(() => {
+    const hasActiveRoom = Boolean(state.room?.code)
+
+    if (hasActiveRoom) {
+      if (!socketInstance.connected) {
+        socketInstance.connect()
+      }
+      return
+    }
+
+    if (socketInstance.connected) {
+      socketInstance.disconnect()
+    }
+  }, [socketInstance, state.room?.code])
 
   useEffect(() => {
     const handleConnect = () => setConnectionState('connected')
@@ -75,6 +116,10 @@ export function SocketProvider({ children }) {
         return
       }
 
+      if (payload.senderId && currentUserIdRef.current && payload.senderId === currentUserIdRef.current) {
+        return
+      }
+
       actions.syncSharedTimer({
         ...payload.timer,
         isRunning: true,
@@ -108,10 +153,48 @@ export function SocketProvider({ children }) {
 
     const handleMemberJoined = (payload) => {
       if (!payload) {
+        console.warn('[Socket] member-joined: empty payload')
         return
       }
 
-      actions.upsertMember(payload.member || payload)
+      console.log('[Socket] Received member-joined event:', payload)
+
+      const member = payload.member || payload
+      const memberId = member?.id || payload.id
+
+      console.log(`[Socket] Adding/updating member: ${member?.name} (${memberId})`)
+      console.log('[Socket] Member object being added:', member)
+      actions.upsertMember(member)
+      console.log('[Socket] After upsertMember, current state members count should update')
+
+      if (memberId && currentUserIdRef.current && memberId === currentUserIdRef.current) {
+        console.log(`[Socket] Skipping notification for own join`)
+        return
+      }
+
+      const notification = {
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: 'success',
+        title: 'Member joined',
+        message: `${member?.name || 'A teammate'} joined the room.`,
+        duration: 3200,
+      }
+      console.log('[Socket] Adding notification:', notification)
+      actions.addNotification(notification)
+    }
+
+    const handleInitialMemberList = (payload) => {
+      if (!payload || !Array.isArray(payload.members)) {
+        console.warn('[Socket] initial-member-list: empty or invalid payload')
+        return
+      }
+
+      console.log('[Socket] Received initial member list:', payload)
+      payload.members.forEach((member) => {
+        if (member?.id !== currentUserIdRef.current) {
+          actions.upsertMember(member)
+        }
+      })
     }
 
     const handleMemberLeft = (payload) => {
@@ -138,6 +221,7 @@ export function SocketProvider({ children }) {
     socketInstance.on('start-timer', handleStartTimer)
     socketInstance.on('sync-timer', handleSyncTimer)
     socketInstance.on('task-update', handleTaskUpdate)
+    socketInstance.on('initial-member-list', handleInitialMemberList)
     socketInstance.on('member-joined', handleMemberJoined)
     socketInstance.on('member-left', handleMemberLeft)
     socketInstance.on('chat-message', handleChatMessage)
@@ -151,6 +235,7 @@ export function SocketProvider({ children }) {
       socketInstance.off('start-timer', handleStartTimer)
       socketInstance.off('sync-timer', handleSyncTimer)
       socketInstance.off('task-update', handleTaskUpdate)
+      socketInstance.off('initial-member-list', handleInitialMemberList)
       socketInstance.off('member-joined', handleMemberJoined)
       socketInstance.off('member-left', handleMemberLeft)
       socketInstance.off('chat-message', handleChatMessage)
@@ -171,14 +256,4 @@ export function SocketProvider({ children }) {
   )
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>
-}
-
-export function useSocket() {
-  const context = useContext(SocketContext)
-
-  if (!context) {
-    throw new Error('useSocket must be used within SocketProvider')
-  }
-
-  return context
 }

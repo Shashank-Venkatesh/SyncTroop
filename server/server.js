@@ -5,7 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
-import roomRoutes from './routes/roomRoutes.js';
+import { createRoomRouter } from './routes/roomRoutes.js'
 import { initializeSocket } from './socket.js';
 
 dotenv.config();
@@ -14,7 +14,7 @@ const app = express();
 const clientOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
 const httpServer = createServer(app);
 
-initializeSocket(httpServer, { origin: clientOrigin });
+const io = initializeSocket(httpServer, { origin: clientOrigin })
 
 // Middleware
 app.use(cors({
@@ -26,7 +26,7 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/room', roomRoutes);
+app.use('/api/room', createRoomRouter(io))
 
 // Database Connection
 mongoose.connect(process.env.MONGO_URI)

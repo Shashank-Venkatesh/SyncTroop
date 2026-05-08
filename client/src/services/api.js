@@ -19,7 +19,10 @@ async function requestWithFallback(requestFn, fallbackFn) {
 
     return response.data
   } catch (error) {
-    if (typeof fallbackFn === 'function') {
+    const hasServerResponse = Boolean(error?.response)
+    const isNetworkFailure = !hasServerResponse
+
+    if (isNetworkFailure && typeof fallbackFn === 'function') {
       return fallbackFn(error)
     }
 
