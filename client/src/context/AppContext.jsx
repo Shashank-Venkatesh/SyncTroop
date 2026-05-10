@@ -93,6 +93,9 @@ function appReducer(state, action) {
       return {
         ...state,
         selectedMode: action.payload,
+        // When switching to solo mode clear room-scoped lists so stale room data
+        // doesn't show up in solo mode.
+        ...(action.payload === 'solo' ? { members: [], tasks: [], messages: [] } : {}),
       }
 
     case 'OPEN_AUTH_MODAL':
@@ -218,6 +221,12 @@ function appReducer(state, action) {
       return {
         ...state,
         tasks: action.payload.map(normalizeTask),
+      }
+
+    case 'DELETE_TASK':
+      return {
+        ...state,
+        tasks: state.tasks.filter((t) => t.id !== action.payload),
       }
 
     case 'UPSERT_TASK': {
@@ -450,6 +459,7 @@ export function AppProvider({ children }) {
       removeMember: (memberId) => dispatch({ type: 'REMOVE_MEMBER', payload: memberId }),
       setTasks: (tasks) => dispatch({ type: 'SET_TASKS', payload: tasks }),
       upsertTask: (task) => dispatch({ type: 'UPSERT_TASK', payload: task }),
+      deleteTask: (taskId) => dispatch({ type: 'DELETE_TASK', payload: taskId }),
       addMessage: (message) => dispatch({ type: 'ADD_MESSAGE', payload: message }),
       setMessages: (messages) => dispatch({ type: 'SET_MESSAGES', payload: messages }),
       addNotification: (notification) => dispatch({ type: 'ADD_NOTIFICATION', payload: notification }),

@@ -12,7 +12,7 @@ const emptyDraft = {
   assignedToId: '',
 }
 
-export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask, onToggleTask }) {
+export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask, onToggleTask, onDeleteTask }) {
   const [draft, setDraft] = useState(emptyDraft)
   const completedTaskCount = tasks.filter((task) => task.completed).length
   const openTaskCount = tasks.length - completedTaskCount
@@ -45,8 +45,8 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
   }
 
   return (
-    <Card className="h-full overflow-visible">
-      <div className="flex items-start justify-between gap-4">
+    <Card className="h-full flex flex-col overflow-hidden">
+      <div className="flex items-start justify-between gap-4 shrink-0">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <p className="text-xs uppercase tracking-[0.28em] text-brand-200">Work plan</p>
@@ -62,7 +62,7 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+      <div className="mt-5 grid gap-3 sm:grid-cols-3 shrink-0">
         <div className="rounded-3xl border border-white/10 bg-slate-950/45 p-4 shadow-float">
           <p className="text-[11px] uppercase tracking-[0.28em] text-brand-200">Open</p>
           <p className="mt-2 text-2xl font-semibold text-white">{openTaskCount}</p>
@@ -82,14 +82,14 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
         </div>
       </div>
 
-      <p className="mt-4 text-sm leading-6 text-slate-400">
+      <p className="mt-4 text-sm leading-6 text-slate-400 shrink-0">
         {isCreator
           ? 'Use this board to assign the next task before the room drifts.'
           : 'Keep your assigned work moving and mark it complete when done.'}
       </p>
 
       {isCreator ? (
-        <form className="mt-5 space-y-3 rounded-3xl border border-white/10 bg-slate-950/50 p-4" onSubmit={handleSubmit}>
+        <form className="mt-5 space-y-3 rounded-3xl border border-white/10 bg-slate-950/50 p-4 shrink-0" onSubmit={handleSubmit}>
           <Input
             label="Task title"
             name="title"
@@ -118,12 +118,12 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
           </Button>
         </form>
       ) : (
-        <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+        <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300 shrink-0">
           Creator-only task controls.
         </div>
       )}
 
-      <div className="mt-5 space-y-3">
+      <div className="mt-5 space-y-3 min-h-0 overflow-y-auto flex-1 max-h-[22rem] pr-2 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.4)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/40 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-400/60">
         {tasks.length > 0 ? (
           tasks.map((task) => {
             const canToggle = currentUser && (task.assignedToId === currentUser.id || isCreator)
@@ -144,7 +144,7 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
                   onChange={() => onToggleTask?.(task)}
                 />
 
-                <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className={cn('font-medium text-white', task.completed && 'line-through text-slate-400')}>
                       {task.title}
@@ -165,6 +165,23 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
                     {task.updatedAt ? <span>{formatClockTime(task.updatedAt)}</span> : null}
                   </div>
                 </div>
+                {isCreator ? (
+                  <div className="ml-3 flex items-start">
+                    <button
+                      type="button"
+                      onClick={() => onDeleteTask?.(task)}
+                      className="text-slate-400 hover:text-rose-400"
+                      aria-label={`Delete task ${task.title}`}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 6h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : null}
               </label>
             )
           })

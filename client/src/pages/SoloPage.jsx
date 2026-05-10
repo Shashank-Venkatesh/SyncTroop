@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { BrandMark } from '../components/ui/BrandMark.jsx'
@@ -23,22 +24,10 @@ function requestTimerNotificationPermission() {
 
 export function SoloPage() {
   const { state, actions } = useApp()
+  const navigate = useNavigate()
   const [notice, setNotice] = useState('')
   const [taskDraft, setTaskDraft] = useState(emptyTaskDraft)
-  const [tasks, setTasks] = useState([
-    {
-      id: 'task-1',
-      title: 'Map the next focus block',
-      note: 'Break the work into one concrete step.',
-      completed: false,
-    },
-    {
-      id: 'task-2',
-      title: 'Finish the write-up',
-      note: 'Capture decisions before the break.',
-      completed: true,
-    },
-  ])
+  const [tasks, setTasks] = useState([])
 
   const timer = usePomodoroTimer(state.settings, {
     onPhaseComplete: ({ completedPhase, nextPhase, completedCycles }) => {
@@ -131,6 +120,10 @@ export function SoloPage() {
     )))
   }
 
+  const handleDeleteTask = (taskId) => {
+    setTasks((current) => current.filter((t) => t.id !== taskId))
+  }
+
   const details = (
     <div className="flex flex-wrap gap-2">
       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
@@ -155,6 +148,9 @@ export function SoloPage() {
         <header className="flex flex-wrap items-center justify-between gap-4">
           <BrandMark />
           <div className="flex flex-wrap items-center gap-3">
+            <Button variant="danger" size="sm" onClick={() => navigate('/')}>
+              Back to home
+            </Button>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">
               Solo mode
             </span>
@@ -276,7 +272,7 @@ export function SoloPage() {
               </Button>
             </form>
 
-            <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+            <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-2 [scrollbar-width:thin] [scrollbar-color:rgba(100,116,139,0.4)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-400/40 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-400/60">
               {tasks.length > 0 ? (
                 tasks.map((task) => (
                   <label
@@ -295,6 +291,22 @@ export function SoloPage() {
                         {task.title}
                       </p>
                       {task.note ? <p className="mt-1 text-sm leading-6 text-slate-400">{task.note}</p> : null}
+                    </div>
+
+                    <div className="ml-3 flex items-start">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="text-slate-400 hover:text-rose-400"
+                        aria-label={`Delete task ${task.title}`}
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M3 6h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
                     </div>
                   </label>
                 ))

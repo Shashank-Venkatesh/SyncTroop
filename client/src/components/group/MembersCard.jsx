@@ -7,7 +7,7 @@ function getStatusLabel(status) {
     case 'away':
       return 'Away'
     case 'offline':
-      return 'Offline'
+      return 'Disconnected'
     default:
       return 'Online'
   }
@@ -80,7 +80,7 @@ export function MembersCard({ members, currentUserId, connected }) {
       </div>
 
       <div className="mt-5 rounded-3xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-slate-400">
-        Realtime status: <span className={connected ? 'text-brand-200' : 'text-amber-200'}>{connected ? 'connected' : 'reconnecting'}</span>
+        Realtime status: <span className={connected ? 'text-brand-200' : 'text-amber-200'}>{connected ? 'connected' : 'disconnected'}</span>
       </div>
     </Card>
   )

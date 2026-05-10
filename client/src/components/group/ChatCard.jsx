@@ -45,7 +45,7 @@ export function ChatCard({ messages, currentUser, onSendMessage, connected }) {
           <h3 className="mt-2 text-xl font-semibold text-white">Chat</h3>
         </div>
         <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-          {connected ? 'Live' : 'Offline'}
+          {connected ? 'Live' : 'Disconnected'}
         </div>
       </div>
 

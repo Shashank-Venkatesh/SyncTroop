@@ -10,6 +10,7 @@ import { TasksCard } from '../components/group/TasksCard.jsx'
 import { ChatCard } from '../components/group/ChatCard.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { useSharedTimer } from '../hooks/useSharedTimer.js'
+import { useNetworkStatus } from '../hooks/useNetworkStatus.js'
 import { useSocket } from '../hooks/useSocket.js'
 import { createRoom, joinRoom } from '../services/api.js'
 import { cn } from '../utils/classNames.js'
@@ -31,7 +32,7 @@ function getCrewStatusLabel(status) {
     case 'away':
       return 'Away'
     case 'offline':
-      return 'Offline'
+      return 'Disconnected'
     default:
       return 'Online'
   }
@@ -42,6 +43,7 @@ export function GroupRoomPage() {
   const navigate = useNavigate()
   const { state, actions } = useApp()
   const { emitEvent, connectionState } = useSocket()
+  const networkStatus = useNetworkStatus()
   const [roomPanel, setRoomPanel] = useState('rules')
   const [isRoomCodeCopied, setIsRoomCodeCopied] = useState(false)
   const socketRoomSyncKeyRef = useRef('')
@@ -52,7 +54,8 @@ export function GroupRoomPage() {
 
   const room = useMemo(() => state.room, [state.room])
   const roomDisplayCode = room?.code || roomCode || ''
-  const connectionLabel = connectionState === 'error' || connectionState === 'disconnected' ? connectionState : 'connected'
+  const hasInternet = networkStatus.isOnline !== false
+  const connectionLabel = hasInternet && connectionState === 'connected' ? 'connected' : 'disconnected'
   const crewMembers = useMemo(() => {
     return [...state.members].sort((left, right) => {
       if (left.id === currentUser.id) {
@@ -251,6 +254,17 @@ export function GroupRoomPage() {
     })
   }
 
+  const handleDeleteTask = (task) => {
+    const nextTasks = state.tasks.filter((t) => t.id !== task.id)
+
+    actions.setTasks(nextTasks)
+    emitEvent('task-update', {
+      roomCode,
+      tasks: nextTasks,
+      senderId: currentUser.id,
+    })
+  }
+
   const handleSendMessage = ({ message, workFocused }) => {
     // Validate message
     if (!message || !message.trim()) {
@@ -348,6 +362,11 @@ export function GroupRoomPage() {
             )}>
               {connectionLabel}
             </span>
+            {!hasInternet ? (
+              <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-amber-100">
+                internet offline
+              </span>
+            ) : null}
             <Button variant="secondary" size="sm" onClick={actions.openSettingsModal}>
               Global settings
             </Button>
@@ -399,6 +418,7 @@ export function GroupRoomPage() {
               isCreator={isCreator}
               onCreateTask={handleCreateTask}
               onToggleTask={handleToggleTask}
+              onDeleteTask={handleDeleteTask}
             />
           </div>
         </section>
@@ -493,7 +513,7 @@ export function GroupRoomPage() {
                 ['Members', `${state.members.length} joined`],
                 ['Tasks', `${state.tasks.length} active`],
                 ['Chat', `${state.messages.length} messages`],
-                ['Status', connectionState],
+                ['Status', connectionLabel],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-3xl border border-white/10 bg-white/5 p-4">
                   <p className="text-sm text-slate-400">{label}</p>
@@ -507,7 +527,7 @@ export function GroupRoomPage() {
             messages={state.messages}
             currentUser={currentUser}
             onSendMessage={handleSendMessage}
-            connected={connectionState === 'connected'}
+              connected={connectionLabel === 'connected'}
           />
         </section>
       </div>

@@ -82,8 +82,13 @@ export function GroupLobbyPage() {
       <div className="mx-auto max-w-7xl space-y-8">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <BrandMark />
-          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-300">
-            Current room: {activeRoom?.code || 'none'}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="secondary" size="sm" onClick={() => navigate('/')}>
+              Back to home
+            </Button>
+            <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-300">
+              Current room: {activeRoom?.code || 'none'}
+            </div>
           </div>
         </header>
 
