@@ -12,7 +12,7 @@ import { useApp } from '../context/AppContext.jsx'
 import { useSharedTimer } from '../hooks/useSharedTimer.js'
 import { useNetworkStatus } from '../hooks/useNetworkStatus.js'
 import { useSocket } from '../hooks/useSocket.js'
-import { createRoom, joinRoom } from '../services/api.js'
+import { joinRoom } from '../services/api.js'
 import { cn } from '../utils/classNames.js'
 import { getPhaseAccent, getProgressFraction, getPhaseLabel } from '../utils/pomodoro.js'
 
@@ -49,6 +49,7 @@ export function GroupRoomPage() {
   const socketRoomSyncKeyRef = useRef('')
 
   const currentUser = state.user
+  const currentUserId = currentUser?.id || null
   const isCreator = Boolean(state.room?.creatorId && currentUser?.id && state.room.creatorId === currentUser.id)
   const sharedTimer = useSharedTimer(roomCode)
 
@@ -58,11 +59,11 @@ export function GroupRoomPage() {
   const connectionLabel = hasInternet && connectionState === 'connected' ? 'connected' : 'disconnected'
   const crewMembers = useMemo(() => {
     return [...state.members].sort((left, right) => {
-      if (left.id === currentUser.id) {
+      if (left.id === currentUserId) {
         return -1
       }
 
-      if (right.id === currentUser.id) {
+      if (right.id === currentUserId) {
         return 1
       }
 
@@ -76,7 +77,7 @@ export function GroupRoomPage() {
 
       return left.name.localeCompare(right.name)
     })
-  }, [currentUser.id, state.members])
+  }, [currentUserId, state.members])
 
   const hydratedRoomRef = useRef(null)
   const currentUserRef = useRef(currentUser)
@@ -213,6 +214,10 @@ export function GroupRoomPage() {
   }
 
   const handleCreateTask = ({ title, assignedToId }) => {
+    if (!currentUser?.id) {
+      return
+    }
+
     // Validate task title
     if (!title || !title.trim()) {
       return
@@ -239,6 +244,10 @@ export function GroupRoomPage() {
   }
 
   const handleToggleTask = (task) => {
+    if (!currentUser?.id) {
+      return
+    }
+
     const nextTask = {
       ...task,
       completed: !task.completed,
@@ -266,6 +275,10 @@ export function GroupRoomPage() {
   }
 
   const handleSendMessage = ({ message, workFocused }) => {
+    if (!currentUser?.id) {
+      return
+    }
+
     // Validate message
     if (!message || !message.trim()) {
       return
@@ -290,6 +303,12 @@ export function GroupRoomPage() {
   }
 
   const handleLeaveRoom = () => {
+    if (!currentUser?.id) {
+      actions.clearRoom()
+      navigate('/group')
+      return
+    }
+
     emitEvent('member-left', {
       roomCode,
       memberId: currentUser.id,

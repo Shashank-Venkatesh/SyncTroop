@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
-import { createDemoUser } from '../utils/mockData.js'
 import { createInitialSharedTimer, getPhaseDuration, PHASES } from '../utils/pomodoro.js'
 
 const STORAGE_KEYS = {
@@ -42,7 +41,7 @@ const initialSettings = {
 const storedRoom = readStoredValue(STORAGE_KEYS.room, null)
 
 const initialState = {
-  user: readStoredValue(STORAGE_KEYS.user, createDemoUser({ name: 'Guest Pilot', email: 'guest@synctroop.app' })),
+  user: readStoredValue(STORAGE_KEYS.user, null),
   settings: initialSettings,
   room: storedRoom,
   // Only load members/tasks/messages from storage if we have a room, otherwise start fresh

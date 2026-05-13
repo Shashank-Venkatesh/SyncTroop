@@ -1,75 +1,51 @@
 import axios from 'axios'
-import {
-  createDemoAuthResponse,
-  createDemoRoomBundle,
-  createDemoRoomLookup,
-} from '../utils/mockData.js'
+
+const DEFAULT_BACKEND = 'https://synctroops.onrender.com'
+
+const baseUrl = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? DEFAULT_BACKEND : '/api')
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: baseUrl,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
-async function requestWithFallback(requestFn, fallbackFn) {
-  try {
-    const response = await requestFn()
-
-    return response.data
-  } catch (error) {
-    const hasServerResponse = Boolean(error?.response)
-    const isNetworkFailure = !hasServerResponse
-
-    if (isNetworkFailure && typeof fallbackFn === 'function') {
-      return fallbackFn(error)
-    }
-
-    throw error
-  }
-}
-
 export async function loginUser(credentials) {
-  return requestWithFallback(
-    () => api.post('/auth/login', credentials),
-    () => createDemoAuthResponse(credentials),
-  )
+  const response = await api.post('/auth/login', credentials)
+
+  return response.data
 }
 
 export async function signupUser(credentials) {
-  return requestWithFallback(
-    () => api.post('/auth/signup', credentials),
-    () => createDemoAuthResponse(credentials),
-  )
+  const response = await api.post('/auth/signup', credentials)
+
+  return response.data
 }
 
 export async function createRoom(payload) {
-  return requestWithFallback(
-    () => api.post('/room/create', payload),
-    () => createDemoRoomBundle({ roomCode: payload?.roomCode, user: payload?.user, isCreator: true, roomName: payload?.roomName }),
-  )
+  const response = await api.post('/room/create', payload)
+
+  return response.data
 }
 
 export async function joinRoom(payload) {
-  return requestWithFallback(
-    () => api.post('/room/join', payload),
-    () => createDemoRoomLookup(payload?.roomCode, payload?.user, false),
-  )
+  const response = await api.post('/room/join', payload)
+
+  return response.data
 }
 
 export async function getRoomTasks(roomCode, user) {
-  return requestWithFallback(
-    () => api.get('/room/tasks', { params: { roomCode } }),
-    () => createDemoRoomLookup(roomCode, user, false).tasks,
-  )
+  const response = await api.get('/room/tasks', { params: { roomCode, userId: user?.id } })
+
+  return response.data
 }
 
 export async function getRoomMembers(roomCode, user) {
-  return requestWithFallback(
-    () => api.get('/room/members', { params: { roomCode } }),
-    () => createDemoRoomLookup(roomCode, user, false).members,
-  )
+  const response = await api.get('/room/members', { params: { roomCode, userId: user?.id } })
+
+  return response.data
 }
 
 export default api

@@ -1,17 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BrandMark } from '../components/ui/BrandMark.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { Card } from '../components/ui/Card.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { useApp } from '../context/AppContext.jsx'
-import { createQuickRoomCode } from '../utils/mockData.js'
 import { createRoom, joinRoom } from '../services/api.js'
+import { generateRoomCode } from '../utils/pomodoro.js'
 
 export function GroupLobbyPage() {
   const { state, actions } = useApp()
   const navigate = useNavigate()
-  const [roomName, setRoomName] = useState(`${state.user.name.split(' ')[0]}'s room`)
+  const userFirstName = state.user?.name?.split(' ')[0] || 'My'
+  const [roomName, setRoomName] = useState(`${userFirstName}'s room`)
   const [roomCode, setRoomCode] = useState('')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -19,14 +20,31 @@ export function GroupLobbyPage() {
 
   const activeRoom = useMemo(() => state.room, [state.room])
 
+  useEffect(() => {
+    if (!state.user) {
+      actions.openAuthModal('group', 'login')
+      navigate('/', { replace: true })
+    }
+  }, [actions, navigate, state.user])
+
+  useEffect(() => {
+    setRoomName(`${userFirstName}'s room`)
+  }, [userFirstName])
+
   const handleCreateRoom = async () => {
+    if (!state.user) {
+      actions.openAuthModal('group', 'login')
+      navigate('/', { replace: true })
+      return
+    }
+
     setBusyAction('create')
     setStatus('')
     setError('')
 
     try {
       const payload = {
-        roomCode: createQuickRoomCode(),
+        roomCode: generateRoomCode(),
         roomName: roomName.trim() || `${state.user.name.split(' ')[0]}'s Focus Room`,
         user: state.user,
       }
@@ -45,6 +63,12 @@ export function GroupLobbyPage() {
   }
 
   const handleJoinRoom = async () => {
+    if (!state.user) {
+      actions.openAuthModal('group', 'login')
+      navigate('/', { replace: true })
+      return
+    }
+
     const normalizedRoomCode = roomCode.trim().toUpperCase()
 
     if (!normalizedRoomCode) {
