@@ -5,8 +5,6 @@ const STORAGE_KEYS = {
   user: 'synctroop:user',
   settings: 'synctroop:settings',
   room: 'synctroop:room',
-  tasks: 'synctroop:tasks',
-  messages: 'synctroop:messages',
   sharedTimer: 'synctroop:sharedTimer',
 }
 
@@ -44,8 +42,8 @@ const initialState = {
   settings: initialSettings,
   room: storedRoom,
   members: [],
-  tasks: storedRoom ? readStoredValue(STORAGE_KEYS.tasks, []) : [],
-  messages: storedRoom ? readStoredValue(STORAGE_KEYS.messages, []) : [],
+  tasks: [],
+  messages: [],
   sharedTimer: storedRoom ? readStoredValue(STORAGE_KEYS.sharedTimer, null) || createInitialSharedTimer(initialSettings) : createInitialSharedTimer(initialSettings),
   roomLoading: {
     open: false,
@@ -392,30 +390,6 @@ export function AppProvider({ children }) {
       window.localStorage.removeItem(STORAGE_KEYS.room)
     }
   }, [state.room])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    if (state.tasks.length > 0) {
-      window.localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(state.tasks))
-    } else {
-      window.localStorage.removeItem(STORAGE_KEYS.tasks)
-    }
-  }, [state.tasks])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    if (state.messages.length > 0) {
-      window.localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(state.messages))
-    } else {
-      window.localStorage.removeItem(STORAGE_KEYS.messages)
-    }
-  }, [state.messages])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
