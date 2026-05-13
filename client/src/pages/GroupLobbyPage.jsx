@@ -6,7 +6,6 @@ import { Card } from '../components/ui/Card.jsx'
 import { Input } from '../components/ui/Input.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { createRoom, joinRoom } from '../services/api.js'
-import { generateRoomCode } from '../utils/pomodoro.js'
 
 export function GroupLobbyPage() {
   const { state, actions } = useApp()
@@ -44,7 +43,6 @@ export function GroupLobbyPage() {
 
     try {
       const payload = {
-        roomCode: generateRoomCode(),
         roomName: roomName.trim() || `${state.user.name.split(' ')[0]}'s Focus Room`,
       }
 

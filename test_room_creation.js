@@ -19,14 +19,21 @@ async function testRoomCreation() {
     console.log('  Token:', signupRes.data.token.substring(0, 20) + '...')
 
     // Get the cookie header from the response
-    const cookies = api.defaults.headers.common['set-cookie']
-    console.log('  Cookies:', cookies ? 'Set' : 'Not set in client')
+    const setCookieHeader = signupRes.headers['set-cookie']?.[0]
+    const tokenCookie = setCookieHeader ? setCookieHeader.split(';')[0] : null
+    console.log('  Cookies:', tokenCookie ? 'Set' : 'Not set in response')
 
     console.log('\n2. Creating room...')
+    if (!tokenCookie) {
+      throw new Error('Auth cookie missing from signup response.')
+    }
+
     const roomRes = await api.post('/room/create', {
-      roomCode: 'TEST123',
       roomName: 'Test Room for Bug Check',
-      user: signupRes.data.user,
+    }, {
+      headers: {
+        Cookie: tokenCookie,
+      },
     })
     console.log('✓ Room created successfully')
     console.log('  Room Code:', roomRes.data.room.code)

@@ -30,16 +30,19 @@ const tokenMatch = setCookieHeader?.match(/token=([^;]+)/)
 const tokenCookie = tokenMatch ? tokenMatch[0] : null
 
 console.log('\n2. Creating room (WITH AUTH COOKIE)...')
+if (!tokenCookie) {
+  console.error('✗ Missing auth cookie from signup response.')
+  process.exit(1)
+}
+
 const roomRes = await fetch('http://localhost:3000/api/room/create', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    ...(tokenCookie ? { 'Cookie': tokenCookie } : {}),
+    Cookie: tokenCookie,
   },
   body: JSON.stringify({
-    roomCode: 'TEST' + Math.random().toString(36).slice(2, 5).toUpperCase(),
     roomName: 'Test Room for Bug Check',
-    user: signupData.user,
   }),
 })
 

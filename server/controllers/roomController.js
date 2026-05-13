@@ -7,8 +7,8 @@ const isDuplicateRoomCodeError = (error) => error?.code === 11000 || error?.code
 
 const resolveRoomUser = async (req) => req.user || null
 
-const createRoomDocument = async ({ roomName, roomCode, user }) => {
-  let candidateCode = normalizeRoomCode(roomCode)
+const createRoomDocument = async ({ roomName, user }) => {
+  let candidateCode = ''
 
   for (let attempt = 0; attempt < ROOM_CODE_ATTEMPTS; attempt += 1) {
     if (!candidateCode) candidateCode = generateRoomCode()
@@ -36,7 +36,7 @@ export function createRoomController(io) {
   const createRoom = async (req, res) => {
     try {
       console.log('[Room] createRoom called, req.user:', req.user?._id)
-      const { roomName, roomCode } = req.body
+      const { roomName } = req.body
       console.log('[Room] Resolving user...')
       const roomUser = await resolveRoomUser(req)
       console.log('[Room] User resolved:', roomUser?._id)
@@ -46,10 +46,10 @@ export function createRoomController(io) {
       }
 
       console.log('[Room] Creating room document...')
-      const room = await createRoomDocument({ roomName, roomCode, user: roomUser })
+      const room = await createRoomDocument({ roomName, user: roomUser })
       console.log('[Room] Room created:', room.code)
 
-      return fetchRoomBundle(room.code, roomUser, res)
+      return fetchRoomBundle(room.code, roomUser, res, io)
     } catch (error) {
       console.error('[Room] createRoom error:', error)
       res.status(500).json({ message: 'Server Error: ' + error.message })
@@ -106,7 +106,7 @@ export function createRoomController(io) {
         senderId: roomUser._id.toString(),
       })
 
-      return fetchRoomBundle(room.code, roomUser, res)
+      return fetchRoomBundle(room.code, roomUser, res, io)
     } catch (error) {
       res.status(500).json({ message: 'Server Error: ' + error.message })
     }
@@ -168,7 +168,30 @@ export function createRoomController(io) {
   return { createRoom, joinRoom, getRoomTasks, getRoomMembers }
 }
 
-const fetchRoomBundle = async (roomCode, user, res) => {
+const getConnectedUserIds = (io, roomCode, fallbackUserId) => {
+  const connectedUserIds = new Set()
+
+  if (fallbackUserId) {
+    connectedUserIds.add(String(fallbackUserId))
+  }
+
+  if (!io?.sockets?.adapter || !roomCode) {
+    return connectedUserIds
+  }
+
+  const roomSocketIds = io.sockets.adapter.rooms.get(roomCode) || new Set()
+
+  roomSocketIds.forEach((socketId) => {
+    const userId = io.sockets.sockets.get(socketId)?.data?.userId
+    if (userId) {
+      connectedUserIds.add(String(userId))
+    }
+  })
+
+  return connectedUserIds
+}
+
+const fetchRoomBundle = async (roomCode, user, res, io) => {
   const normalizedRoomCode = normalizeRoomCode(roomCode)
   const room = await Room.findOne({ code: normalizedRoomCode })
     .populate('creator', 'name')
@@ -178,5 +201,35 @@ const fetchRoomBundle = async (roomCode, user, res) => {
 
   if (!room) return res.status(404).json({ message: 'Room not found.' })
 
-  return res.status(200).json(serializeRoomBundle(room, user))
+  const roomData = room.toObject({ getters: true })
+  const connectedUserIds = getConnectedUserIds(io, normalizedRoomCode, user?._id)
+
+  if (connectedUserIds.size > 0) {
+    roomData.members = (roomData.members || []).filter((member) => {
+      const memberId = member.user?._id || member.user
+      return connectedUserIds.has(String(memberId))
+    })
+
+    roomData.tasks = (roomData.tasks || []).filter((task) => {
+      const assignedToId = task.assignedTo?._id || task.assignedTo
+      const completedById = task.completedBy?._id || task.completedBy
+
+      if (assignedToId && !connectedUserIds.has(String(assignedToId))) {
+        return false
+      }
+
+      if (completedById && !connectedUserIds.has(String(completedById))) {
+        return false
+      }
+
+      return true
+    })
+
+    roomData.messages = (roomData.messages || []).filter((message) => {
+      const messageUserId = message.user?._id || message.user
+      return connectedUserIds.has(String(messageUserId))
+    })
+  }
+
+  return res.status(200).json(serializeRoomBundle(roomData, user))
 }
