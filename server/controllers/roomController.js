@@ -168,29 +168,6 @@ export function createRoomController(io) {
   return { createRoom, joinRoom, getRoomTasks, getRoomMembers }
 }
 
-const getConnectedUserIds = (io, roomCode, fallbackUserId) => {
-  const connectedUserIds = new Set()
-
-  if (fallbackUserId) {
-    connectedUserIds.add(String(fallbackUserId))
-  }
-
-  if (!io?.sockets?.adapter || !roomCode) {
-    return connectedUserIds
-  }
-
-  const roomSocketIds = io.sockets.adapter.rooms.get(roomCode) || new Set()
-
-  roomSocketIds.forEach((socketId) => {
-    const userId = io.sockets.sockets.get(socketId)?.data?.userId
-    if (userId) {
-      connectedUserIds.add(String(userId))
-    }
-  })
-
-  return connectedUserIds
-}
-
 const fetchRoomBundle = async (roomCode, user, res, io) => {
   const normalizedRoomCode = normalizeRoomCode(roomCode)
   const room = await Room.findOne({ code: normalizedRoomCode })
@@ -202,34 +179,8 @@ const fetchRoomBundle = async (roomCode, user, res, io) => {
   if (!room) return res.status(404).json({ message: 'Room not found.' })
 
   const roomData = room.toObject({ getters: true })
-  const connectedUserIds = getConnectedUserIds(io, normalizedRoomCode, user?._id)
 
-  if (connectedUserIds.size > 0) {
-    roomData.members = (roomData.members || []).filter((member) => {
-      const memberId = member.user?._id || member.user
-      return connectedUserIds.has(String(memberId))
-    })
-
-    roomData.tasks = (roomData.tasks || []).filter((task) => {
-      const assignedToId = task.assignedTo?._id || task.assignedTo
-      const completedById = task.completedBy?._id || task.completedBy
-
-      if (assignedToId && !connectedUserIds.has(String(assignedToId))) {
-        return false
-      }
-
-      if (completedById && !connectedUserIds.has(String(completedById))) {
-        return false
-      }
-
-      return true
-    })
-
-    roomData.messages = (roomData.messages || []).filter((message) => {
-      const messageUserId = message.user?._id || message.user
-      return connectedUserIds.has(String(messageUserId))
-    })
-  }
-
+  // Return all room data without filtering by connected users
+  // Users should see the complete state of their room, not just currently online members
   return res.status(200).json(serializeRoomBundle(roomData, user))
 }

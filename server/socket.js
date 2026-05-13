@@ -284,16 +284,8 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         // Send initial member list to the joining user
         const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
         if (room && room.members.length > 0) {
-          const roomSocketIds = io.sockets.adapter.rooms.get(roomCode) || new Set()
-          const connectedUserIds = new Set(
-            Array.from(roomSocketIds)
-              .map((socketId) => toId(io.sockets.sockets.get(socketId)?.data?.userId))
-              .filter(Boolean),
-          )
-
-          const membersList = room.members
-            .filter((m) => connectedUserIds.has(m.user._id.toString()))
-            .map((m) => ({
+          // Send all members of the room to the joining user, not just connected ones
+          const membersList = room.members.map((m) => ({
             id: m.user._id.toString(),
             name: m.user.name || '',
             email: m.user.email || '',
