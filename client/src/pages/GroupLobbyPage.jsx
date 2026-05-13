@@ -46,7 +46,6 @@ export function GroupLobbyPage() {
       const payload = {
         roomCode: generateRoomCode(),
         roomName: roomName.trim() || `${state.user.name.split(' ')[0]}'s Focus Room`,
-        user: state.user,
       }
 
       const bundle = await createRoom(payload)
@@ -83,7 +82,6 @@ export function GroupLobbyPage() {
     try {
       const response = await joinRoom({
         roomCode: normalizedRoomCode,
-        user: state.user,
       })
 
       const { room } = response

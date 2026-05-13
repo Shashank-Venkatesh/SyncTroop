@@ -161,8 +161,8 @@ export function LandingPage() {
                 <div className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
                   <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Chat</p>
                   <div className="mt-4 space-y-3 text-sm text-slate-300">
-                    <div className="rounded-2xl bg-white/5 px-3 py-2">Maya: review pass is complete.</div>
-                    <div className="rounded-2xl bg-brand-400/10 px-3 py-2 text-brand-50">Jordan: starting the next focus block.</div>
+                    <div className="rounded-2xl bg-white/5 px-3 py-2">Live room messages appear here in real time.</div>
+                    <div className="rounded-2xl bg-brand-400/10 px-3 py-2 text-brand-50">No seeded chat history is shown.</div>
                   </div>
                 </div>
               </div>

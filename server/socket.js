@@ -159,20 +159,20 @@ async function upsertRoomMember(roomCode, memberPayload) {
   return memberPayload
 }
 
-async function markRoomMemberAway(roomCode, memberId) {
+async function removeRoomMember(roomCode, memberId) {
   const room = await Room.findOne({ code: roomCode })
 
   if (!room || !memberId) {
     return false
   }
 
-  const existingMember = room.members.find((member) => member.user.toString() === memberId)
+  const initialLength = room.members.length
+  room.members = room.members.filter((member) => member.user.toString() !== memberId)
 
-  if (!existingMember) {
+  if (room.members.length === initialLength) {
     return false
   }
 
-  existingMember.status = 'away'
   await room.save()
 
   return true
@@ -284,7 +284,16 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         // Send initial member list to the joining user
         const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
         if (room && room.members.length > 0) {
-          const membersList = room.members.map((m) => ({
+          const roomSocketIds = io.sockets.adapter.rooms.get(roomCode) || new Set()
+          const connectedUserIds = new Set(
+            Array.from(roomSocketIds)
+              .map((socketId) => toId(io.sockets.sockets.get(socketId)?.data?.userId))
+              .filter(Boolean),
+          )
+
+          const membersList = room.members
+            .filter((m) => connectedUserIds.has(m.user._id.toString()))
+            .map((m) => ({
             id: m.user._id.toString(),
             name: m.user.name || '',
             email: m.user.email || '',
@@ -355,7 +364,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
           return
         }
 
-        const updated = await markRoomMemberAway(roomCode, memberId)
+        const updated = await removeRoomMember(roomCode, memberId)
 
         if (updated) {
           console.log(`[Broadcast] 📢 User (ID: ${memberId}) LEFT room "${roomCode}"`)
@@ -389,7 +398,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         const savedMessage = await saveRoomMessage(roomCode, message)
 
         if (savedMessage) {
-          socket.to(roomCode).emit('chat-message', {
+          io.to(roomCode).emit('chat-message', {
             roomCode,
             message: savedMessage,
             senderId: socket.data.userId,
@@ -458,6 +467,28 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
     socket.on('disconnect', () => {
       console.log(`[Socket] Disconnected: ${socket.id} (user: ${socket.data.userId})`)
+      const roomCode = normalizeRoomCode(socket.data.roomCode)
+      const memberId = toId(socket.data.userId)
+
+      if (!roomCode || !memberId) {
+        return
+      }
+
+      removeRoomMember(roomCode, memberId)
+        .then((updated) => {
+          if (!updated) {
+            return
+          }
+
+          socket.to(roomCode).emit('member-left', {
+            roomCode,
+            memberId,
+            senderId: memberId,
+          })
+        })
+        .catch((error) => {
+          handleSocketError('disconnect', error)
+        })
     })
   })
 

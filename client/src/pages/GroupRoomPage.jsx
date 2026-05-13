@@ -115,7 +115,12 @@ export function GroupRoomPage() {
         // Set the room bundle with all the data from the server
         actions.setRoomBundle(bundle)
       } catch {
-        // Keep the local demo room usable even if the API request fails.
+        if (!isActive) {
+          return
+        }
+
+        actions.clearRoom()
+        navigate('/group', { replace: true })
       }
     }
 
@@ -285,16 +290,13 @@ export function GroupRoomPage() {
     }
 
     const nextMessage = {
-      id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `msg-${Math.random().toString(36).slice(2, 10)}`,
       userId: currentUser.id,
       username: currentUser.name,
       avatar: currentUser.avatar,
       message: message.trim(),
-      timestamp: new Date().toISOString(),
       workFocused,
     }
 
-    actions.addMessage(nextMessage)
     emitEvent('chat-message', {
       roomCode,
       message: nextMessage,

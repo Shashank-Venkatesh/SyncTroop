@@ -1,34 +1,11 @@
 import Room from '../models/Room.js'
-import User from '../models/User.js'
-import bcrypt from 'bcryptjs'
 import { generateRoomCode, normalizeRoomCode, serializeRoomBundle } from '../utils/roomUtils.js'
 
 const ROOM_CODE_ATTEMPTS = 20
 
 const isDuplicateRoomCodeError = (error) => error?.code === 11000 || error?.codeName === 'DuplicateKey'
 
-const resolveRoomUser = async (req) => {
-  if (req.user?._id) return req.user
-
-  const userPayload = req.body?.user
-  if (!userPayload?.email || !userPayload?.name) return null
-
-  const existingUser = await User.findOne({ email: userPayload.email })
-  if (existingUser) return existingUser
-
-  const password = await bcrypt.hash(
-    `room-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    10
-  )
-
-  return User.create({
-    name: userPayload.name,
-    email: userPayload.email,
-    password,
-    avatar: userPayload.avatar,
-    role: userPayload.role || 'member',
-  })
-}
+const resolveRoomUser = async (req) => req.user || null
 
 const createRoomDocument = async ({ roomName, roomCode, user }) => {
   let candidateCode = normalizeRoomCode(roomCode)
@@ -65,7 +42,7 @@ export function createRoomController(io) {
       console.log('[Room] User resolved:', roomUser?._id)
 
       if (!roomUser) {
-        return res.status(400).json({ message: 'User data is required.' })
+        return res.status(401).json({ message: 'Authentication required.' })
       }
 
       console.log('[Room] Creating room document...')
@@ -90,7 +67,7 @@ export function createRoomController(io) {
       }
 
       if (!roomUser) {
-        return res.status(400).json({ message: 'User data is required.' })
+        return res.status(401).json({ message: 'Authentication required.' })
       }
 
       const room = await Room.findOne({ code: normalizedRoomCode })

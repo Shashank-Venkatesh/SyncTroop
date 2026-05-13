@@ -5,7 +5,6 @@ const STORAGE_KEYS = {
   user: 'synctroop:user',
   settings: 'synctroop:settings',
   room: 'synctroop:room',
-  members: 'synctroop:members',
   tasks: 'synctroop:tasks',
   messages: 'synctroop:messages',
   sharedTimer: 'synctroop:sharedTimer',
@@ -44,8 +43,7 @@ const initialState = {
   user: readStoredValue(STORAGE_KEYS.user, null),
   settings: initialSettings,
   room: storedRoom,
-  // Only load members/tasks/messages from storage if we have a room, otherwise start fresh
-  members: storedRoom ? readStoredValue(STORAGE_KEYS.members, []) : [],
+  members: [],
   tasks: storedRoom ? readStoredValue(STORAGE_KEYS.tasks, []) : [],
   messages: storedRoom ? readStoredValue(STORAGE_KEYS.messages, []) : [],
   sharedTimer: storedRoom ? readStoredValue(STORAGE_KEYS.sharedTimer, null) || createInitialSharedTimer(initialSettings) : createInitialSharedTimer(initialSettings),
@@ -394,18 +392,6 @@ export function AppProvider({ children }) {
       window.localStorage.removeItem(STORAGE_KEYS.room)
     }
   }, [state.room])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    if (state.members.length > 0) {
-      window.localStorage.setItem(STORAGE_KEYS.members, JSON.stringify(state.members))
-    } else {
-      window.localStorage.removeItem(STORAGE_KEYS.members)
-    }
-  }, [state.members])
 
   useEffect(() => {
     if (typeof window === 'undefined') {

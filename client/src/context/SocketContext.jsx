@@ -153,22 +153,15 @@ export function SocketProvider({ children }) {
 
     const handleMemberJoined = (payload) => {
       if (!payload) {
-        console.warn('[Socket] member-joined: empty payload')
         return
       }
-
-      console.log('[Socket] Received member-joined event:', payload)
 
       const member = payload.member || payload
       const memberId = member?.id || payload.id
 
-      console.log(`[Socket] Adding/updating member: ${member?.name} (${memberId})`)
-      console.log('[Socket] Member object being added:', member)
       actions.upsertMember(member)
-      console.log('[Socket] After upsertMember, current state members count should update')
 
       if (memberId && currentUserIdRef.current && memberId === currentUserIdRef.current) {
-        console.log(`[Socket] Skipping notification for own join`)
         return
       }
 
@@ -179,22 +172,15 @@ export function SocketProvider({ children }) {
         message: `${member?.name || 'A teammate'} joined the room.`,
         duration: 3200,
       }
-      console.log('[Socket] Adding notification:', notification)
       actions.addNotification(notification)
     }
 
     const handleInitialMemberList = (payload) => {
       if (!payload || !Array.isArray(payload.members)) {
-        console.warn('[Socket] initial-member-list: empty or invalid payload')
         return
       }
-
-      console.log('[Socket] Received initial member list:', payload)
-      payload.members.forEach((member) => {
-        if (member?.id !== currentUserIdRef.current) {
-          actions.upsertMember(member)
-        }
-      })
+      const onlineMembers = payload.members.filter((member) => member?.status !== 'away')
+      actions.setMembers(onlineMembers)
     }
 
     const handleMemberLeft = (payload) => {
