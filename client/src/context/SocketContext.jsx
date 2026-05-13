@@ -30,6 +30,7 @@ function getSocketUrl() {
     }
   }
 
+  // Default to localhost:3000 in development, origin in production
   return import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin
 }
 

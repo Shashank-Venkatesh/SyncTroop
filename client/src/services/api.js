@@ -1,8 +1,8 @@
 import axios from 'axios'
 
-const DEFAULT_BACKEND = 'https://synctroops.onrender.com'
+const PROD_BACKEND = 'https://synctroops.onrender.com'
 
-const baseUrl = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? DEFAULT_BACKEND : '/api')
+const baseUrl = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? PROD_BACKEND : 'http://localhost:3000')
 
 export const api = axios.create({
   baseURL: baseUrl,
