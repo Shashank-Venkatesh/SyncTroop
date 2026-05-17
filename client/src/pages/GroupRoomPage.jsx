@@ -112,13 +112,22 @@ export function GroupRoomPage() {
           return
         }
 
+        console.log('[GroupRoom] Room bundle received:', {
+          roomCode: bundle.room?.code,
+          creatorId: bundle.room?.creatorId,
+          creatorName: bundle.room?.creatorName,
+          membersCount: bundle.members?.length,
+          tasksCount: bundle.tasks?.length,
+        })
+
         // Set the room bundle with all the data from the server
         actions.setRoomBundle(bundle)
-      } catch {
+      } catch (err) {
         if (!isActive) {
           return
         }
 
+        console.error('[GroupRoom] Failed to load room:', err?.message || err)
         actions.clearRoom()
         navigate('/group', { replace: true })
       }

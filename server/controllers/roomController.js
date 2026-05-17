@@ -180,14 +180,36 @@ const fetchRoomBundle = async (roomCode, user, res, io) => {
   const room = await Room.findOne({ code: normalizedRoomCode })
     .populate('creator', 'name')
     .populate('members.user', 'name email avatar')
-    .populate('tasks.assignedTo tasks.completedBy', 'name')
+    .populate('tasks.assignedTo', 'name')
+    .populate('tasks.completedBy', 'name')
     .populate('messages.user', 'name avatar')
 
-  if (!room) return res.status(404).json({ message: 'Room not found.' })
+  if (!room) {
+    console.error(`[Room] Room not found: ${normalizedRoomCode}`)
+    return res.status(404).json({ message: 'Room not found.' })
+  }
 
   const roomData = room.toObject({ getters: true })
+  
+  console.log(`[Room] Fetching bundle for ${normalizedRoomCode}:`, {
+    roomCode: roomData.code,
+    roomName: roomData.name,
+    creatorId: roomData.creator?._id,
+    creatorName: roomData.creator?.name,
+    membersCount: roomData.members?.length || 0,
+    tasksCount: roomData.tasks?.length || 0,
+  })
 
   // Return all room data without filtering by connected users
   // Users should see the complete state of their room, not just currently online members
-  return res.status(200).json(serializeRoomBundle(roomData, user))
+  const bundle = serializeRoomBundle(roomData, user)
+  console.log(`[Room] Serialized bundle:`, {
+    roomCode: bundle.room.code,
+    creatorId: bundle.room.creatorId,
+    creatorName: bundle.room.creatorName,
+    membersCount: bundle.members.length,
+    tasksCount: bundle.tasks.length,
+  })
+  
+  return res.status(200).json(bundle)
 }

@@ -40,7 +40,7 @@ const storedRoom = readStoredValue(STORAGE_KEYS.room, null)
 const initialState = {
   user: readStoredValue(STORAGE_KEYS.user, null),
   settings: initialSettings,
-  room: storedRoom,
+  room: null, // Don't load from localStorage - fetch fresh from API
   members: [],
   tasks: [],
   messages: [],
@@ -147,8 +147,8 @@ function appReducer(state, action) {
       }
     }
 
-    case 'SET_ROOM_BUNDLE':
-      return {
+    case 'SET_ROOM_BUNDLE': {
+      const newState = {
         ...state,
         room: action.payload.room,
         members: action.payload.members || [],
@@ -156,6 +156,15 @@ function appReducer(state, action) {
         messages: action.payload.messages || [],
         sharedTimer: action.payload.sharedTimer || createInitialSharedTimer(state.settings),
       }
+      console.log('[AppContext] SET_ROOM_BUNDLE:', {
+        roomCode: newState.room?.code,
+        creatorId: newState.room?.creatorId,
+        creatorName: newState.room?.creatorName,
+        membersCount: newState.members.length,
+        tasksCount: newState.tasks.length,
+      })
+      return newState
+    }
 
     case 'CLEAR_ROOM':
       return {

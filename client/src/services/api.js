@@ -64,8 +64,15 @@ export async function createRoom(payload) {
 }
 
 export async function joinRoom(payload) {
+  console.log('[API] joinRoom request:', { roomCode: payload.roomCode, userId: payload.user?.id })
   const response = await api.post('/api/room/join', payload)
-
+  console.log('[API] joinRoom response:', {
+    roomCode: response.data.room?.code,
+    creatorId: response.data.room?.creatorId,
+    creatorName: response.data.room?.creatorName,
+    membersCount: response.data.members?.length,
+    tasksCount: response.data.tasks?.length,
+  })
   return response.data
 }
 
