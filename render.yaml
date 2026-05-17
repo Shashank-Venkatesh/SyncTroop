@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: synctroops-backend
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: CLIENT_URL
+        scope: build,runtime
+      - key: MONGO_URI
+        scope: build,runtime
+      - key: JWT_SECRET
+        scope: build,runtime
+
+  - type: web
+    name: synctroops-frontend
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run preview
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_API_URL
+        value: https://synctroops.onrender.com
+      - key: VITE_SOCKET_URL
+        value: https://synctroops.onrender.com

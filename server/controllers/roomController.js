@@ -52,7 +52,10 @@ export function createRoomController(io) {
       return fetchRoomBundle(room.code, roomUser, res, io)
     } catch (error) {
       console.error('[Room] createRoom error:', error)
-      res.status(500).json({ message: 'Server Error: ' + error.message })
+      const message = process.env.NODE_ENV === 'production'
+        ? 'Unable to create room. Please try again.'
+        : 'Server Error: ' + error.message;
+      res.status(500).json({ message })
     }
   }
 
@@ -108,7 +111,11 @@ export function createRoomController(io) {
 
       return fetchRoomBundle(room.code, roomUser, res, io)
     } catch (error) {
-      res.status(500).json({ message: 'Server Error: ' + error.message })
+      console.error('[Room] joinRoom error:', error)
+      const message = process.env.NODE_ENV === 'production'
+        ? 'Unable to join room. Please try again.'
+        : 'Server Error: ' + error.message;
+      res.status(500).json({ message })
     }
   }
 

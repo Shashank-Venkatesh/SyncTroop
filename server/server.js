@@ -11,16 +11,51 @@ import { initializeSocket } from './socket.js';
 dotenv.config();
 
 const app = express();
-const clientOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+
+// Allow multiple origins for development and production flexibility
+const getAllowedOrigins = () => {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const backendUrl = process.env.BACKEND_URL_PROD || 'http://localhost:3000';
+  
+  const origins = [
+    clientUrl,
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:3001',
+  ];
+  
+  if (process.env.NODE_ENV === 'production') {
+    return [clientUrl]; // Only allow configured client URL in production
+  }
+  
+  return origins; // Allow multiple origins in development
+};
+
+const allowedOrigins = getAllowedOrigins();
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Rejected origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
 const httpServer = createServer(app);
 
-const io = initializeSocket(httpServer, { origin: clientOrigin })
+const io = initializeSocket(httpServer, { 
+  origin: allowedOrigins,
+  credentials: true,
+})
 
 // Middleware
-app.use(cors({
-  origin: clientOrigin,
-  credentials: true,
-}));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 

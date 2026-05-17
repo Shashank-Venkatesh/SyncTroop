@@ -65,7 +65,11 @@ export const signupUser = async (req, res) => {
       token,
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server Error: ' + error.message });
+    console.error('[Auth] Signup error:', error);
+    const message = process.env.NODE_ENV === 'production' 
+      ? 'Unable to create account. Please try again.'
+      : 'Server Error: ' + error.message;
+    res.status(500).json({ message });
   }
 };
 
@@ -109,6 +113,10 @@ export const loginUser = async (req, res) => {
       token,
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server Error: ' + error.message });
+    console.error('[Auth] Login error:', error);
+    const message = process.env.NODE_ENV === 'production'
+      ? 'Login failed. Please try again.'
+      : 'Server Error: ' + error.message;
+    res.status(500).json({ message });
   }
 };

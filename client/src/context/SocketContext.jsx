@@ -5,33 +5,39 @@ import { useApp } from './AppContext.jsx'
 export const SocketContext = createContext(null)
 
 function getSocketUrl() {
-  const explicitSocketUrl = import.meta.env.VITE_SOCKET_URL
-
-  if (explicitSocketUrl) {
-    return explicitSocketUrl
+  // Try explicit socket URL first
+  const explicitSocketUrl = import.meta.env.VITE_SOCKET_URL;
+  
+  if (explicitSocketUrl && /^https?:\/\//i.test(explicitSocketUrl)) {
+    return explicitSocketUrl;
   }
 
-  const explicitApiUrl = import.meta.env.VITE_API_URL
-
+  // Try explicit API URL
+  const explicitApiUrl = import.meta.env.VITE_API_URL;
+  
   if (explicitApiUrl && /^https?:\/\//i.test(explicitApiUrl)) {
     try {
-      const parsedUrl = new URL(explicitApiUrl)
-
+      const parsedUrl = new URL(explicitApiUrl);
+      
       if (parsedUrl.pathname.endsWith('/api')) {
-        parsedUrl.pathname = parsedUrl.pathname.slice(0, -4) || '/'
+        parsedUrl.pathname = parsedUrl.pathname.slice(0, -4) || '/';
       }
-
-      parsedUrl.search = ''
-      parsedUrl.hash = ''
-
-      return `${parsedUrl.origin}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')}`
-    } catch {
-      // Fall through to the development/backend default below.
+      
+      parsedUrl.search = '';
+      parsedUrl.hash = '';
+      
+      const baseUrl = `${parsedUrl.origin}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')}`;
+      console.log('[Socket] Using URL from VITE_API_URL:', baseUrl);
+      return baseUrl;
+    } catch (err) {
+      console.error('[Socket] Invalid VITE_API_URL:', explicitApiUrl, err);
     }
   }
 
-  // Default to localhost:3000 in development, origin in production
-  return import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin
+  // In development, use localhost:3000; in production, use current origin
+  const defaultUrl = import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin;
+  console.log('[Socket] Using default URL:', defaultUrl);
+  return defaultUrl;
 }
 
 export function SocketProvider({ children }) {
@@ -41,6 +47,12 @@ export function SocketProvider({ children }) {
       autoConnect: false,
       withCredentials: true,
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5,
+      secure: import.meta.env.PROD,
+      rejectUnauthorized: false,
     }),
   )
   const [connectionState, setConnectionState] = useState('disconnected')

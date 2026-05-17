@@ -229,11 +229,18 @@ function handleSocketError(eventName, error) {
 }
 
 export function initializeSocket(server, { origin = 'http://localhost:5173' } = {}) {
+  // Normalize origin to handle both string and array
+  const corsOrigin = Array.isArray(origin) ? origin : [origin];
+  
   const io = new SocketIOServer(server, {
     cors: {
-      origin,
+      origin: corsOrigin,
       credentials: true,
+      methods: ['GET', 'POST'],
     },
+    transports: ['websocket', 'polling'],
+    pingInterval: 25000,
+    pingTimeout: 20000,
   })
 
   io.use(async (socket, next) => {
