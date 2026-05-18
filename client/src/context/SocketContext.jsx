@@ -4,40 +4,63 @@ import { useApp } from './AppContext.jsx'
 
 export const SocketContext = createContext(null)
 
+function normalizeHttpUrl(value) {
+  if (!value || typeof value !== 'string') {
+    return ''
+  }
+
+  const trimmed = value.trim()
+
+  if (!trimmed) {
+    return ''
+  }
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+
+  const protocol = import.meta.env.DEV ? 'http://' : 'https://'
+  return `${protocol}${trimmed}`
+}
+
 function getSocketUrl() {
   // Try explicit socket URL first
-  const explicitSocketUrl = import.meta.env.VITE_SOCKET_URL;
-  
-  if (explicitSocketUrl && /^https?:\/\//i.test(explicitSocketUrl)) {
-    return explicitSocketUrl;
+  const explicitSocketUrl = normalizeHttpUrl(import.meta.env.VITE_SOCKET_URL)
+
+  if (explicitSocketUrl) {
+    return explicitSocketUrl
   }
 
   // Try explicit API URL
-  const explicitApiUrl = import.meta.env.VITE_API_URL;
-  
-  if (explicitApiUrl && /^https?:\/\//i.test(explicitApiUrl)) {
+  const explicitApiUrl = normalizeHttpUrl(import.meta.env.VITE_API_URL)
+
+  if (explicitApiUrl) {
     try {
-      const parsedUrl = new URL(explicitApiUrl);
-      
+      const parsedUrl = new URL(explicitApiUrl)
+
       if (parsedUrl.pathname.endsWith('/api')) {
-        parsedUrl.pathname = parsedUrl.pathname.slice(0, -4) || '/';
+        parsedUrl.pathname = parsedUrl.pathname.slice(0, -4) || '/'
       }
-      
-      parsedUrl.search = '';
-      parsedUrl.hash = '';
-      
-      const baseUrl = `${parsedUrl.origin}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')}`;
-      console.log('[Socket] Using URL from VITE_API_URL:', baseUrl);
-      return baseUrl;
+
+      parsedUrl.search = ''
+      parsedUrl.hash = ''
+
+      const baseUrl = `${parsedUrl.origin}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')}`
+      console.log('[Socket] Using URL from VITE_API_URL:', baseUrl)
+      return baseUrl
     } catch (err) {
-      console.error('[Socket] Invalid VITE_API_URL:', explicitApiUrl, err);
+      console.error('[Socket] Invalid VITE_API_URL:', explicitApiUrl, err)
     }
   }
 
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
   // In development, use localhost:3000; in production, use current origin
-  const defaultUrl = import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin;
-  console.log('[Socket] Using default URL:', defaultUrl);
-  return defaultUrl;
+  const defaultUrl = import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin
+  console.log('[Socket] Using default URL:', defaultUrl)
+  return defaultUrl
 }
 
 function getStoredToken() {
