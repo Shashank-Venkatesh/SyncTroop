@@ -90,6 +90,9 @@ export function AuthModal() {
       const response = activeTab === 'signup' ? await signupUser(payload) : await loginUser(payload)
 
       actions.setUser(response.user)
+      if (typeof window !== 'undefined' && response.token) {
+        window.localStorage.setItem('synctroop:token', response.token)
+      }
       actions.closeAuthModal()
       navigate(authModal.mode === 'group' ? '/group' : '/solo')
     } catch (error) {

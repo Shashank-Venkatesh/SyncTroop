@@ -178,12 +178,40 @@ async function removeRoomMember(roomCode, memberId) {
   return true
 }
 
+async function setMemberStatus(roomCode, memberId, status) {
+  const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
+
+  if (!room || !memberId) {
+    return null
+  }
+
+  const member = room.members.find((entry) => entry.user.toString() === memberId)
+
+  if (!member) {
+    return null
+  }
+
+  member.status = status
+  await room.save()
+
+  return {
+    id: member.user._id.toString(),
+    name: member.user.name || '',
+    email: member.user.email || '',
+    avatar: member.user.avatar || '',
+    role: member.role,
+    status: member.status,
+  }
+}
+
 async function saveRoomMessage(roomCode, messagePayload) {
   const room = await Room.findOne({ code: roomCode })
 
   if (!room || !messagePayload.userId || !messagePayload.message) {
     return null
   }
+
+  const user = await User.findById(messagePayload.userId).select('name avatar')
 
   const message = room.messages.create({
     user: messagePayload.userId,
@@ -197,12 +225,85 @@ async function saveRoomMessage(roomCode, messagePayload) {
   return {
     id: message._id.toString(),
     userId: messagePayload.userId,
-    username: messagePayload.username,
-    avatar: messagePayload.avatar,
+    username: user?.name || messagePayload.username,
+    avatar: user?.avatar || messagePayload.avatar,
     message: messagePayload.message,
     timestamp: message.createdAt,
     workFocused: messagePayload.workFocused,
   }
+}
+
+function normalizeTaskList(room) {
+  return (room.tasks || []).map((task) => ({
+    id: task._id.toString(),
+    title: task.title,
+    assignedToId: task.assignedTo?._id?.toString() || null,
+    assignedToName: task.assignedTo?.name || null,
+    completed: Boolean(task.completed),
+    completedBy: task.completedBy?.name || null,
+    updatedAt: task.updatedAt,
+  }))
+}
+
+async function broadcastRoomTasks(io, roomCode) {
+  const room = await Room.findOne({ code: roomCode })
+    .populate('tasks.assignedTo', 'name')
+    .populate('tasks.completedBy', 'name')
+
+  if (!room) {
+    return
+  }
+
+  io.to(roomCode).emit('task-update', {
+    roomCode,
+    tasks: normalizeTaskList(room),
+  })
+}
+
+async function applyTaskUpdate(roomCode, payload, userId) {
+  const room = await Room.findOne({ code: roomCode })
+
+  if (!room) {
+    return
+  }
+
+  const action = payload.action
+  const taskPayload = payload.task || {}
+
+  if (action === 'create') {
+    if (!taskPayload.title || !taskPayload.assignedToId) {
+      return
+    }
+
+    room.tasks.push({
+      title: String(taskPayload.title).trim(),
+      assignedTo: taskPayload.assignedToId,
+      completed: false,
+    })
+  }
+
+  if (action === 'toggle') {
+    const taskId = toId(taskPayload.id)
+    const task = room.tasks.id(taskId)
+
+    if (!task) {
+      return
+    }
+
+    const nextCompleted = Boolean(taskPayload.completed)
+    task.completed = nextCompleted
+    task.completedBy = nextCompleted ? userId : null
+  }
+
+  if (action === 'delete') {
+    const taskId = toId(payload.taskId || taskPayload.id)
+
+    if (taskId) {
+      room.tasks = room.tasks.filter((task) => task._id.toString() !== taskId)
+    }
+  }
+
+  await room.save()
 }
 
 async function updateRoomTimer(roomCode, timerPayload) {
@@ -237,6 +338,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
       origin: corsOrigin,
       credentials: true,
       methods: ['GET', 'POST'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     },
     transports: ['websocket', 'polling'],
     pingInterval: 25000,
@@ -288,6 +390,16 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
       if (!roomCode) return
 
       try {
+        const updatedMember = await setMemberStatus(roomCode, socket.data.userId, 'online')
+
+        if (updatedMember) {
+          io.to(roomCode).emit('member-status', {
+            roomCode,
+            member: updatedMember,
+            senderId: socket.data.userId,
+          })
+        }
+
         // Send initial member list to the joining user
         const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
         if (room && room.members.length > 0) {
@@ -416,7 +528,8 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
           return
         }
 
-        socket.to(roomCode).emit('task-update', payload)
+        await applyTaskUpdate(roomCode, payload, socket.data.userId)
+        await broadcastRoomTasks(io, roomCode)
       } catch (error) {
         handleSocketError('task-update', error)
       }
@@ -473,15 +586,15 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         return
       }
 
-      removeRoomMember(roomCode, memberId)
-        .then((updated) => {
-          if (!updated) {
+      setMemberStatus(roomCode, memberId, 'away')
+        .then((updatedMember) => {
+          if (!updatedMember) {
             return
           }
 
-          socket.to(roomCode).emit('member-left', {
+          socket.to(roomCode).emit('member-status', {
             roomCode,
-            memberId,
+            member: updatedMember,
             senderId: memberId,
           })
         })

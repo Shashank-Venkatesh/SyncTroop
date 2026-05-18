@@ -40,6 +40,14 @@ function getSocketUrl() {
   return defaultUrl;
 }
 
+function getStoredToken() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return window.localStorage.getItem('synctroop:token') || ''
+}
+
 export function SocketProvider({ children }) {
   const { state, actions } = useApp()
   const [socketInstance] = useState(() =>
@@ -53,6 +61,9 @@ export function SocketProvider({ children }) {
       reconnectionAttempts: 5,
       secure: import.meta.env.PROD,
       rejectUnauthorized: false,
+      auth: {
+        token: getStoredToken(),
+      },
     }),
   )
   const [connectionState, setConnectionState] = useState('disconnected')
@@ -61,6 +72,11 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     currentUserIdRef.current = state.user?.id
   }, [state.user?.id])
+
+  useEffect(() => {
+    const token = getStoredToken()
+    socketInstance.auth = token ? { token } : {}
+  }, [socketInstance, state.user?.id])
 
   useEffect(() => {
     const hasActiveRoom = Boolean(state.room?.code)
@@ -80,7 +96,10 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     const handleConnect = () => setConnectionState('connected')
     const handleDisconnect = () => setConnectionState('disconnected')
-    const handleConnectError = () => setConnectionState('error')
+    const handleConnectError = (error) => {
+      console.error('[Socket] Connection error:', error?.message || error)
+      setConnectionState('error')
+    }
 
     const handleCreateRoom = (payload) => {
       if (!payload) {
@@ -192,8 +211,7 @@ export function SocketProvider({ children }) {
       if (!payload || !Array.isArray(payload.members)) {
         return
       }
-      const onlineMembers = payload.members.filter((member) => member?.status !== 'away')
-      actions.setMembers(onlineMembers)
+      actions.setMembers(payload.members)
     }
 
     const handleMemberLeft = (payload) => {
@@ -212,6 +230,14 @@ export function SocketProvider({ children }) {
       actions.addMessage(payload.message || payload)
     }
 
+    const handleMemberStatus = (payload) => {
+      if (!payload?.member) {
+        return
+      }
+
+      actions.upsertMember(payload.member)
+    }
+
     socketInstance.on('connect', handleConnect)
     socketInstance.on('disconnect', handleDisconnect)
     socketInstance.on('connect_error', handleConnectError)
@@ -223,6 +249,7 @@ export function SocketProvider({ children }) {
     socketInstance.on('initial-member-list', handleInitialMemberList)
     socketInstance.on('member-joined', handleMemberJoined)
     socketInstance.on('member-left', handleMemberLeft)
+    socketInstance.on('member-status', handleMemberStatus)
     socketInstance.on('chat-message', handleChatMessage)
 
     return () => {
@@ -237,6 +264,7 @@ export function SocketProvider({ children }) {
       socketInstance.off('initial-member-list', handleInitialMemberList)
       socketInstance.off('member-joined', handleMemberJoined)
       socketInstance.off('member-left', handleMemberLeft)
+      socketInstance.off('member-status', handleMemberStatus)
       socketInstance.off('chat-message', handleChatMessage)
       socketInstance.disconnect()
     }

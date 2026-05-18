@@ -252,6 +252,7 @@ export function GroupRoomPage() {
     actions.upsertTask(nextTask)
     emitEvent('task-update', {
       roomCode,
+      action: 'create',
       task: nextTask,
       senderId: currentUser.id,
     })
@@ -272,6 +273,7 @@ export function GroupRoomPage() {
     actions.upsertTask(nextTask)
     emitEvent('task-update', {
       roomCode,
+      action: 'toggle',
       task: nextTask,
       senderId: currentUser.id,
     })
@@ -283,6 +285,8 @@ export function GroupRoomPage() {
     actions.setTasks(nextTasks)
     emitEvent('task-update', {
       roomCode,
+      action: 'delete',
+      taskId: task.id,
       tasks: nextTasks,
       senderId: currentUser.id,
     })

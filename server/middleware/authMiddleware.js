@@ -8,6 +8,13 @@ export const protect = async (req, res, next) => {
     token = req.cookies.token;
   }
 
+  if (!token && typeof req.headers.authorization === 'string') {
+    const [scheme, value] = req.headers.authorization.split(' ')
+    if (scheme?.toLowerCase() === 'bearer' && value) {
+      token = value.trim()
+    }
+  }
+
   if (!token) {
     return res.status(401).json({ message: 'Not authorized to access this route.' });
   }

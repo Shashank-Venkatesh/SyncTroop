@@ -4,18 +4,30 @@ const PROD_BACKEND = 'https://synctroops.onrender.com'
 
 // Determine the correct API base URL
 const getBaseUrl = () => {
-  // Use explicit VITE_API_URL if set
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+  const explicitApiUrl = import.meta.env.VITE_API_URL
+
+  if (explicitApiUrl) {
+    try {
+      const parsedUrl = new URL(explicitApiUrl)
+
+      if (parsedUrl.pathname.endsWith('/api')) {
+        parsedUrl.pathname = parsedUrl.pathname.slice(0, -4) || '/'
+      }
+
+      parsedUrl.search = ''
+      parsedUrl.hash = ''
+
+      return `${parsedUrl.origin}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname.replace(/\/$/, '')}`
+    } catch {
+      return explicitApiUrl
+    }
   }
-  
-  // In production, use the current origin as the backend (when deployed together)
+
   if (import.meta.env.PROD) {
-    return window.location.origin;
+    return window.location.origin
   }
-  
-  // In development, use localhost
-  return 'http://localhost:3000';
+
+  return 'http://localhost:3000'
 };
 
 const baseUrl = getBaseUrl()
@@ -30,6 +42,28 @@ export const api = axios.create({
   },
 })
 
+function getAuthToken() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return window.localStorage.getItem('synctroop:token') || ''
+}
+
+// Add request interceptor to attach auth token when available
+api.interceptors.request.use(
+  (config) => {
+    const token = getAuthToken()
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+
+    return config
+  },
+  (error) => Promise.reject(error),
+)
+
 // Add response interceptor for better error handling
 api.interceptors.response.use(
   response => response,
@@ -38,6 +72,7 @@ api.interceptors.response.use(
       // Clear user data on unauthorized
       if (typeof window !== 'undefined') {
         localStorage.removeItem('synctroop:user')
+        localStorage.removeItem('synctroop:token')
         window.location.href = '/'
       }
     }
