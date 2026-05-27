@@ -1,4 +1,4 @@
-import { createContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useApp } from './AppContext.jsx'
 
@@ -91,28 +91,63 @@ export function SocketProvider({ children }) {
   )
   const [connectionState, setConnectionState] = useState('disconnected')
   const currentUserIdRef = useRef(state.user?.id)
+  const disconnectTimerRef = useRef(null)
 
   useEffect(() => {
     currentUserIdRef.current = state.user?.id
   }, [state.user?.id])
 
+  // Synchronise socket auth whenever the user changes. This runs as an
+  // effect, but the connect logic below also sets auth *synchronously*
+  // right before calling .connect() to close the React-batching race.
   useEffect(() => {
     const token = getStoredToken()
     socketInstance.auth = token ? { token } : {}
   }, [socketInstance, state.user?.id])
 
+  // Connect the socket when a room becomes active; disconnect (with a
+  // small debounce) when the room is cleared.  The debounce prevents a
+  // spurious disconnect → reconnect cycle during lobby → room navigation
+  // where state.room briefly becomes null between setRoomBundle calls.
   useEffect(() => {
     const hasActiveRoom = Boolean(state.room?.code)
 
     if (hasActiveRoom) {
+      // Cancel any pending disconnect
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current)
+        disconnectTimerRef.current = null
+      }
+
       if (!socketInstance.connected) {
+        // Set auth token synchronously right before connecting to prevent
+        // the race condition where React batches the auth-update effect
+        // after this connect effect, causing the socket to handshake with
+        // a stale or empty token.
+        const token = getStoredToken()
+        socketInstance.auth = token ? { token } : {}
         socketInstance.connect()
       }
       return
     }
 
-    if (socketInstance.connected) {
-      socketInstance.disconnect()
+    // Debounce disconnect — wait 1.5s to ensure this isn't a transient
+    // state transition during navigation (e.g. lobby → room page).
+    if (socketInstance.connected && !disconnectTimerRef.current) {
+      disconnectTimerRef.current = setTimeout(() => {
+        disconnectTimerRef.current = null
+        // Re-check: room may have been set again during the delay
+        if (!socketInstance.data?.roomCode) {
+          socketInstance.disconnect()
+        }
+      }, 1500)
+    }
+
+    return () => {
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current)
+        disconnectTimerRef.current = null
+      }
     }
   }, [socketInstance, state.room?.code])
 
@@ -293,6 +328,42 @@ export function SocketProvider({ children }) {
     }
   }, [actions, socketInstance])
 
+  // Helper: ensure socket is connected then emit join-room for the given
+  // room code. If the socket is already connected, the emit fires
+  // immediately; otherwise it waits for the 'connect' event first.
+  const joinSocketRoom = useCallback(
+    (roomCode) => {
+      if (!roomCode) return
+
+      const doEmit = () => {
+        console.log('[Socket] Emitting join-room for room:', roomCode)
+        socketInstance.emit('join-room', {
+          roomCode,
+          senderId: currentUserIdRef.current,
+        })
+      }
+
+      if (socketInstance.connected) {
+        doEmit()
+      } else {
+        // Ensure auth is set, then connect and wait
+        const token = getStoredToken()
+        socketInstance.auth = token ? { token } : {}
+
+        const onConnect = () => {
+          socketInstance.off('connect', onConnect)
+          doEmit()
+        }
+        socketInstance.on('connect', onConnect)
+
+        if (!socketInstance.connecting) {
+          socketInstance.connect()
+        }
+      }
+    },
+    [socketInstance],
+  )
+
   const value = useMemo(
     () => ({
       socket: socketInstance,
@@ -301,8 +372,9 @@ export function SocketProvider({ children }) {
       emitEvent: (eventName, payload) => {
         socketInstance?.emit(eventName, payload)
       },
+      joinSocketRoom,
     }),
-    [connectionState, socketInstance],
+    [connectionState, socketInstance, joinSocketRoom],
   )
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>

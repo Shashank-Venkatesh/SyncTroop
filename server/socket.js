@@ -418,9 +418,20 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
             roomCode,
             members: membersList,
           })
+
+          // Broadcast member-joined to OTHER sockets in the room so existing
+          // members see the new joiner in real time. This replaces the REST
+          // handler broadcast which fired before any socket had joined the room.
+          const joiner = membersList.find((m) => m.id === socket.data.userId)
+          if (joiner) {
+            console.log(`[Socket] Broadcasting member-joined for ${joiner.name} to room ${roomCode}`)
+            socket.to(roomCode).emit('member-joined', {
+              roomCode,
+              member: joiner,
+              senderId: socket.data.userId,
+            })
+          }
         }
-        // Note: member-joined is already broadcast by the API's joinRoom endpoint
-        // No need to broadcast again here to avoid duplicates
       } catch (error) {
         console.error(`[Socket] Error handling join-room:`, error)
       }

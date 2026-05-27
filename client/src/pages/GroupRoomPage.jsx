@@ -42,10 +42,11 @@ export function GroupRoomPage() {
   const { roomCode } = useParams()
   const navigate = useNavigate()
   const { state, actions } = useApp()
-  const { emitEvent, connectionState } = useSocket()
+  const { emitEvent, connectionState, joinSocketRoom } = useSocket()
   const networkStatus = useNetworkStatus()
   const [roomPanel, setRoomPanel] = useState('rules')
   const [isRoomCodeCopied, setIsRoomCodeCopied] = useState(false)
+  const [isHydrated, setIsHydrated] = useState(false)
   const socketRoomSyncKeyRef = useRef('')
 
   const currentUser = state.user
@@ -87,6 +88,9 @@ export function GroupRoomPage() {
     currentUserRef.current = currentUser
   }, [currentUser])
 
+  // Step 1: Hydrate room data from the API. This MUST complete before we
+  // attempt to join the Socket.io room, otherwise the socket join-room
+  // event may use a stale room code from a previous session.
   useEffect(() => {
     let isActive = true
 
@@ -122,6 +126,9 @@ export function GroupRoomPage() {
 
         // Set the room bundle with all the data from the server
         actions.setRoomBundle(bundle)
+
+        // Mark hydration as complete — this unblocks the socket join effect
+        setIsHydrated(true)
       } catch (err) {
         if (!isActive) {
           return
@@ -140,13 +147,12 @@ export function GroupRoomPage() {
     }
   }, [roomCode, navigate, actions])
 
+  // Step 2: Join the Socket.io room ONLY after hydration has confirmed the
+  // room exists on the server. Uses joinSocketRoom() which handles the
+  // connect → auth → emit sequence atomically, preventing the race where
+  // join-room fires before the socket is authenticated or connected.
   useEffect(() => {
-    if (connectionState !== 'connected') {
-      socketRoomSyncKeyRef.current = ''
-      return
-    }
-
-    if (!roomCode || !currentUser?.id || !room?.code) {
+    if (!isHydrated || !roomCode || !currentUser?.id) {
       return
     }
 
@@ -158,11 +164,16 @@ export function GroupRoomPage() {
 
     socketRoomSyncKeyRef.current = syncKey
 
-    emitEvent('join-room', {
-      roomCode,
-      senderId: currentUser.id,
-    })
-  }, [connectionState, currentUser?.id, emitEvent, room?.code, roomCode])
+    // Use the helper that guarantees auth + connection before emitting
+    joinSocketRoom(roomCode)
+  }, [isHydrated, roomCode, currentUser?.id, joinSocketRoom])
+
+  // Reset socket sync key when socket disconnects so we re-join on reconnect
+  useEffect(() => {
+    if (connectionState !== 'connected') {
+      socketRoomSyncKeyRef.current = ''
+    }
+  }, [connectionState])
 
   useEffect(() => {
     if (!room?.code || room?.code !== roomCode) {
@@ -173,6 +184,7 @@ export function GroupRoomPage() {
   // Reset hydration state when component unmounts or room changes
   useEffect(() => {
     return () => {
+      setIsHydrated(false)
       if (roomCode !== hydratedRoomRef.current) {
         hydratedRoomRef.current = null
       }

@@ -90,24 +90,10 @@ export function createRoomController(io) {
 
       await room.save()
 
-      // ✅ Emit directly from the server — no client round-trip needed
-      const isCreator = room.creator.toString() === roomUser._id.toString()
-      const memberPayload = {
-        id: roomUser._id.toString(),
-        name: roomUser.name,
-        email: roomUser.email,
-        avatar: roomUser.avatar || '',
-        role: isCreator ? 'creator' : 'member',
-        status: 'online',
-      }
-
-      // Broadcast to everyone in the room (both existing and new joiner)
-      console.log(`[Room] Broadcasting member-joined for ${roomUser.name} to room ${normalizedRoomCode}`)
-      io.to(normalizedRoomCode).emit('member-joined', {
-        roomCode: normalizedRoomCode,
-        member: memberPayload,
-        senderId: roomUser._id.toString(),
-      })
+      // NOTE: member-joined broadcast is handled by the socket.js 'join-room'
+      // handler, which fires AFTER the client socket has actually joined the
+      // Socket.io room. Broadcasting here would go nowhere because no socket
+      // has called socket.join(roomCode) yet at this point in the flow.
 
       return fetchRoomBundle(room.code, roomUser, res, io)
     } catch (error) {
