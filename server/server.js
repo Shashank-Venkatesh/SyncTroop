@@ -14,8 +14,7 @@ const app = express();
 
 // Allow multiple origins for development and production flexibility
 const getAllowedOrigins = () => {
-  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-  const backendUrl = process.env.BACKEND_URL_PROD || 'http://localhost:3000';
+  const clientUrl = (process.env.CLIENT_URL || 'https://synctroop.vercel.app').replace(/\/$/, '');
   
   const origins = [
     clientUrl,
@@ -24,23 +23,35 @@ const getAllowedOrigins = () => {
     'http://localhost:3001',
   ];
   
-  if (process.env.NODE_ENV === 'production') {
-    return [clientUrl]; // Only allow configured client URL in production
-  }
-  
-  return origins; // Allow multiple origins in development
+  return origins;
 };
 
 const allowedOrigins = getAllowedOrigins();
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`[CORS] Rejected origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+    // If no origin (e.g. server-to-server or postman requests), allow it
+    if (!origin) {
+      return callback(null, true);
     }
+
+    const normalizedOrigin = origin.replace(/\/$/, '');
+
+    // Allow exact match in allowed origins list
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    // Allow any Vercel subdomain/preview deployment dynamically
+    if (
+      normalizedOrigin.startsWith('https://') &&
+      (normalizedOrigin.endsWith('.vercel.app') || normalizedOrigin.includes('.vercel.app:'))
+    ) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS] Rejected origin: ${origin}`);
+    callback(null, false); // Clean rejection without throwing a server-crashing Error
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -50,7 +61,7 @@ const corsOptions = {
 const httpServer = createServer(app);
 
 const io = initializeSocket(httpServer, { 
-  origin: allowedOrigins,
+  origin: corsOptions.origin, // Share the same robust CORS matching function
   credentials: true,
 })
 

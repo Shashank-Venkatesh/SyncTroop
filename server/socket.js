@@ -330,8 +330,8 @@ function handleSocketError(eventName, error) {
 }
 
 export function initializeSocket(server, { origin = 'http://localhost:5173' } = {}) {
-  // Normalize origin to handle both string and array
-  const corsOrigin = Array.isArray(origin) ? origin : [origin];
+  // Normalize origin to handle function, array, or string
+  const corsOrigin = typeof origin === 'function' ? origin : (Array.isArray(origin) ? origin : [origin]);
   
   const io = new SocketIOServer(server, {
     cors: {
