@@ -58,7 +58,7 @@ export function TasksCard({ tasks, members, isCreator, currentUser, onCreateTask
           <h3 className="mt-2 text-xl font-semibold text-white">Tasks</h3>
         </div>
         <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-          {tasks.length} active
+          {openTaskCount} active
         </div>
       </div>
 

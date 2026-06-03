@@ -52,7 +52,7 @@ export function GroupRoomPage() {
   const currentUser = state.user
   const currentUserId = currentUser?.id || null
   const isCreator = Boolean(state.room?.creatorId && currentUser?.id && state.room.creatorId === currentUser.id)
-  const canOpenGlobalSettings = Boolean(state.room?.isCreator)
+  const canOpenGlobalSettings = isCreator
   const sharedTimer = useSharedTimer(roomCode)
 
   const room = useMemo(() => state.room, [state.room])
