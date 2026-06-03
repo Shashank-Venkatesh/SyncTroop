@@ -413,9 +413,11 @@ export function GroupRoomPage() {
                 internet offline
               </span>
             ) : null}
-            <Button variant="secondary" size="sm" onClick={actions.openSettingsModal}>
-              Global settings
-            </Button>
+            {isCreator ? (
+              <Button variant="secondary" size="sm" onClick={actions.openSettingsModal}>
+                Global settings
+              </Button>
+            ) : null}
             <Button variant="danger" size="sm" onClick={handleLeaveRoom}>
               Leave room
             </Button>

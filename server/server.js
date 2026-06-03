@@ -1,6 +1,7 @@
 import express from 'express';
 import { createServer } from 'node:http';
 import mongoose from 'mongoose';
+import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
@@ -50,31 +51,6 @@ const getAllowedOrigins = () => {
 
 const allowedOrigins = getAllowedOrigins();
 
-const isOriginAllowed = (value) => {
-  if (typeof value !== 'string' || !value.trim()) {
-    return false;
-  }
-
-  const normalizedOrigin = normalizeOrigin(value);
-
-  if (allowedOrigins.has(normalizedOrigin) || isHostedFrontendOrigin(normalizedOrigin)) {
-    return true;
-  }
-
-  if (
-    normalizedOrigin.startsWith('https://') &&
-    (normalizedOrigin.endsWith('.vercel.app') || normalizedOrigin.includes('.vercel.app:'))
-  ) {
-    return true;
-  }
-
-  if (normalizedOrigin.startsWith('https://') && normalizedOrigin.endsWith('.onrender.com')) {
-    return true;
-  }
-
-  return false;
-};
-
 const isHostedFrontendOrigin = (value) => {
   try {
     const parsedUrl = new URL(value);
@@ -95,8 +71,18 @@ const corsOptions = {
       return callback(null, true);
     }
 
+    const normalizedOrigin = normalizeOrigin(origin);
+
     // Allow exact match in allowed origins list
-    if (isOriginAllowed(origin)) {
+    if (allowedOrigins.has(normalizedOrigin) || isHostedFrontendOrigin(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    // Allow any Vercel subdomain/preview deployment dynamically
+    if (
+      normalizedOrigin.startsWith('https://') &&
+      (normalizedOrigin.endsWith('.vercel.app') || normalizedOrigin.includes('.vercel.app:'))
+    ) {
       return callback(null, true);
     }
 
@@ -108,31 +94,6 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
-const applyCorsHeaders = (req, res, next) => {
-  const origin = req.headers.origin;
-
-  if (typeof origin === 'string' && isOriginAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', corsOptions.methods.join(','));
-
-    const requestedHeaders = req.headers['access-control-request-headers'];
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      typeof requestedHeaders === 'string' && requestedHeaders.trim()
-        ? requestedHeaders
-        : corsOptions.allowedHeaders.join(','),
-    );
-    res.setHeader('Vary', 'Origin');
-  }
-
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
-
-  return next();
-};
-
 const httpServer = createServer(app);
 
 const io = initializeSocket(httpServer, { 
@@ -141,7 +102,8 @@ const io = initializeSocket(httpServer, {
 })
 
 // Middleware
-app.use(applyCorsHeaders);
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
