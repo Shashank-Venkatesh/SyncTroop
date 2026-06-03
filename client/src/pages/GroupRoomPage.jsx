@@ -52,6 +52,7 @@ export function GroupRoomPage() {
   const currentUser = state.user
   const currentUserId = currentUser?.id || null
   const isCreator = Boolean(state.room?.creatorId && currentUser?.id && state.room.creatorId === currentUser.id)
+  const canOpenGlobalSettings = Boolean(state.room?.isCreator)
   const sharedTimer = useSharedTimer(roomCode)
 
   const room = useMemo(() => state.room, [state.room])
@@ -413,7 +414,7 @@ export function GroupRoomPage() {
                 internet offline
               </span>
             ) : null}
-            {isCreator ? (
+            {canOpenGlobalSettings ? (
               <Button variant="secondary" size="sm" onClick={actions.openSettingsModal}>
                 Global settings
               </Button>
