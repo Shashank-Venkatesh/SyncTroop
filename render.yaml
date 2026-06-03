@@ -10,10 +10,14 @@ services:
       - key: PORT
         value: 3000
       - key: CLIENT_URL
+        value: https://synctroop.vercel.app
         scope: build,runtime
       - key: MONGO_URI
         scope: build,runtime
       - key: JWT_SECRET
+        scope: build,runtime
+      - key: CLIENT_URLS
+        value: https://synctroop.vercel.app,https://synctroops-frontend.onrender.com
         scope: build,runtime
 
   - type: web
@@ -27,5 +31,7 @@ services:
         value: production
       - key: VITE_API_URL
         value: https://synctroops.onrender.com
+        scope: build
       - key: VITE_SOCKET_URL
         value: https://synctroops.onrender.com
+        scope: build

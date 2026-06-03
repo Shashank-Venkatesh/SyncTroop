@@ -1,7 +1,6 @@
 import express from 'express';
 import { createServer } from 'node:http';
 import mongoose from 'mongoose';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
@@ -12,21 +11,82 @@ dotenv.config();
 
 const app = express();
 
-// Allow multiple origins for development and production flexibility
+const normalizeOrigin = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().replace(/\/$/, '').toLowerCase();
+};
+
+const parseOriginList = (value) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  return value
+    .split(/[\s,]+/)
+    .map(normalizeOrigin)
+    .filter(Boolean);
+};
+
+// Allow the configured frontend origins used by local dev, Vercel, and Render.
 const getAllowedOrigins = () => {
-  const clientUrl = (process.env.CLIENT_URL || 'https://synctroop.vercel.app').replace(/\/$/, '');
-  
-  const origins = [
-    clientUrl,
+  const origins = new Set([
+    ...parseOriginList(process.env.CLIENT_URL),
+    ...parseOriginList(process.env.CLIENT_URLS),
+    ...parseOriginList(process.env.FRONTEND_URL),
+    ...parseOriginList(process.env.FRONTEND_URLS),
+    'https://synctroop.vercel.app',
+    'https://synctroops-frontend.onrender.com',
     'http://localhost:5173',
+    'http://localhost:4173',
     'http://localhost:3000',
     'http://localhost:3001',
-  ];
-  
+  ]);
+
   return origins;
 };
 
 const allowedOrigins = getAllowedOrigins();
+
+const isOriginAllowed = (value) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+
+  const normalizedOrigin = normalizeOrigin(value);
+
+  if (allowedOrigins.has(normalizedOrigin) || isHostedFrontendOrigin(normalizedOrigin)) {
+    return true;
+  }
+
+  if (
+    normalizedOrigin.startsWith('https://') &&
+    (normalizedOrigin.endsWith('.vercel.app') || normalizedOrigin.includes('.vercel.app:'))
+  ) {
+    return true;
+  }
+
+  if (normalizedOrigin.startsWith('https://') && normalizedOrigin.endsWith('.onrender.com')) {
+    return true;
+  }
+
+  return false;
+};
+
+const isHostedFrontendOrigin = (value) => {
+  try {
+    const parsedUrl = new URL(value);
+
+    return (
+      parsedUrl.protocol === 'https:' &&
+      (parsedUrl.hostname.endsWith('.vercel.app') || parsedUrl.hostname.endsWith('.onrender.com'))
+    );
+  } catch {
+    return false;
+  }
+};
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -35,18 +95,8 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    const normalizedOrigin = origin.replace(/\/$/, '');
-
     // Allow exact match in allowed origins list
-    if (allowedOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
-    }
-
-    // Allow any Vercel subdomain/preview deployment dynamically
-    if (
-      normalizedOrigin.startsWith('https://') &&
-      (normalizedOrigin.endsWith('.vercel.app') || normalizedOrigin.includes('.vercel.app:'))
-    ) {
+    if (isOriginAllowed(origin)) {
       return callback(null, true);
     }
 
@@ -58,6 +108,31 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization'],
 };
 
+const applyCorsHeaders = (req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (typeof origin === 'string' && isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', corsOptions.methods.join(','));
+
+    const requestedHeaders = req.headers['access-control-request-headers'];
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      typeof requestedHeaders === 'string' && requestedHeaders.trim()
+        ? requestedHeaders
+        : corsOptions.allowedHeaders.join(','),
+    );
+    res.setHeader('Vary', 'Origin');
+  }
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  return next();
+};
+
 const httpServer = createServer(app);
 
 const io = initializeSocket(httpServer, { 
@@ -66,7 +141,7 @@ const io = initializeSocket(httpServer, {
 })
 
 // Middleware
-app.use(cors(corsOptions));
+app.use(applyCorsHeaders);
 app.use(express.json());
 app.use(cookieParser());
 
