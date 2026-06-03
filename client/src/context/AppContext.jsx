@@ -413,9 +413,7 @@ export function AppProvider({ children }) {
       openAuthModal: (mode = 'solo', tab = 'login') => dispatch({ type: 'OPEN_AUTH_MODAL', payload: { mode, tab } }),
       closeAuthModal: () => dispatch({ type: 'CLOSE_AUTH_MODAL' }),
       openSettingsModal: () => {
-        const isGroupCreator = Boolean(state.room?.creatorId && state.user?.id && state.room.creatorId === state.user.id)
-
-        if (state.selectedMode === 'group' && !isGroupCreator) {
+        if (state.selectedMode === 'group' && !state.room?.isCreator) {
           return
         }
 
@@ -446,7 +444,7 @@ export function AppProvider({ children }) {
       tickSharedTimer: () => dispatch({ type: 'TICK_SHARED_TIMER' }),
       syncSharedTimer: (timer) => dispatch({ type: 'SYNC_SHARED_TIMER', payload: timer }),
     }
-  }, [state.room, state.user, state.selectedMode])
+  }, [state.room?.isCreator, state.selectedMode])
 
   const value = useMemo(
     () => ({ state, dispatch, actions }),
