@@ -24,6 +24,12 @@ function normalizeHttpUrl(value) {
 }
 
 function getSocketUrl() {
+  // If running locally, route socket connections through the local proxy/origin
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    console.log('[Socket] Localhost detected, routing socket connection to:', window.location.origin)
+    return window.location.origin
+  }
+
   // Try explicit socket URL first
   const explicitSocketUrl = normalizeHttpUrl(import.meta.env.VITE_SOCKET_URL)
 
@@ -92,10 +98,12 @@ export function SocketProvider({ children }) {
   const [connectionState, setConnectionState] = useState('disconnected')
   const currentUserIdRef = useRef(state.user?.id)
   const disconnectTimerRef = useRef(null)
+  const stateRef = useRef(state)
 
   useEffect(() => {
+    stateRef.current = state
     currentUserIdRef.current = state.user?.id
-  }, [state.user?.id])
+  }, [state])
 
   // Synchronise socket auth whenever the user changes. This runs as an
   // effect, but the connect logic below also sets auth *synchronously*
@@ -137,7 +145,7 @@ export function SocketProvider({ children }) {
       disconnectTimerRef.current = setTimeout(() => {
         disconnectTimerRef.current = null
         // Re-check: room may have been set again during the delay
-        if (!socketInstance.data?.roomCode) {
+        if (!stateRef.current.room?.code) {
           socketInstance.disconnect()
         }
       }, 1500)
@@ -157,6 +165,17 @@ export function SocketProvider({ children }) {
     const handleConnectError = (error) => {
       console.error('[Socket] Connection error:', error?.message || error)
       setConnectionState('error')
+
+      if (error?.message === 'UNAUTHORIZED') {
+        console.warn('[Socket] Unauthorized connection attempt. Clearing token.')
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('synctroop:user')
+          localStorage.removeItem('synctroop:token')
+          actions.clearUser()
+          actions.clearRoom()
+          window.location.href = '/'
+        }
+      }
     }
 
     const handleCreateRoom = (payload) => {
@@ -225,7 +244,16 @@ export function SocketProvider({ children }) {
         return
       }
 
-      actions.syncSharedTimer(payload.timer || payload)
+      const receivedTimer = payload.timer || payload
+      const localTimer = stateRef.current.sharedTimer
+
+      // Avoid jitter: only sync if phase/running state changes, or time difference is > 2 seconds
+      const timeDiff = Math.abs((localTimer.secondsLeft || 0) - (receivedTimer.secondsLeft || 0))
+      const stateChanged = localTimer.isRunning !== receivedTimer.isRunning || localTimer.phase !== receivedTimer.phase
+
+      if (stateChanged || timeDiff > 2) {
+        actions.syncSharedTimer(receivedTimer)
+      }
     }
 
     const handleTaskUpdate = (payload) => {
@@ -249,20 +277,26 @@ export function SocketProvider({ children }) {
       const member = payload.member || payload
       const memberId = member?.id || payload.id
 
+      // Check if this member was already in our list and online to prevent spam
+      const existingMember = stateRef.current.members.find(m => m.id === memberId)
+      const isAlreadyOnline = existingMember && existingMember.status === 'online'
+
       actions.upsertMember(member)
 
       if (memberId && currentUserIdRef.current && memberId === currentUserIdRef.current) {
         return
       }
 
-      const notification = {
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        type: 'success',
-        title: 'Member joined',
-        message: `${member?.name || 'A teammate'} joined the room.`,
-        duration: 3200,
+      if (!isAlreadyOnline) {
+        const notification = {
+          id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          type: 'success',
+          title: 'Member joined',
+          message: `${member?.name || 'A teammate'} joined the room.`,
+          duration: 3200,
+        }
+        actions.addNotification(notification)
       }
-      actions.addNotification(notification)
     }
 
     const handleInitialMemberList = (payload) => {
@@ -276,7 +310,19 @@ export function SocketProvider({ children }) {
       const memberId = payload?.memberId || payload?.id
 
       if (memberId) {
+        const existingMember = stateRef.current.members.find(m => m.id === memberId)
         actions.removeMember(memberId)
+
+        if (existingMember && memberId !== currentUserIdRef.current) {
+          const notification = {
+            id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            type: 'info',
+            title: 'Member left',
+            message: `${existingMember.name || 'A teammate'} left the room.`,
+            duration: 3200,
+          }
+          actions.addNotification(notification)
+        }
       }
     }
 
@@ -293,7 +339,25 @@ export function SocketProvider({ children }) {
         return
       }
 
-      actions.upsertMember(payload.member)
+      const member = payload.member
+      const existingMember = stateRef.current.members.find(m => m.id === member.id)
+
+      actions.upsertMember(member)
+
+      if (member.id && currentUserIdRef.current && member.id === currentUserIdRef.current) {
+        return
+      }
+
+      if (existingMember && existingMember.status !== member.status) {
+        const notification = {
+          id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `notification-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          type: 'info',
+          title: member.status === 'away' ? 'Member away' : 'Member back',
+          message: `${member.name || 'A teammate'} is now ${member.status === 'away' ? 'away' : 'online'}.`,
+          duration: 3200,
+        }
+        actions.addNotification(notification)
+      }
     }
 
     socketInstance.on('connect', handleConnect)

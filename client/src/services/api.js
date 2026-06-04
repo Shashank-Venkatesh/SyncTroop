@@ -4,6 +4,11 @@ const PROD_BACKEND = 'https://synctroops.onrender.com'
 
 // Determine the correct API base URL
 const getBaseUrl = () => {
+  // If running locally, route api calls through the local proxy/origin
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return window.location.origin
+  }
+
   const explicitApiUrl = import.meta.env.VITE_API_URL
 
   if (explicitApiUrl) {

@@ -5,11 +5,12 @@ import User from './models/User.js'
 import { normalizeRoomCode } from './utils/roomUtils.js'
 
 function toId(value) {
-  if (value && typeof value === 'object') {
-    return String(value._id || value.id || '')
+  if (!value) return ''
+  if (typeof value === 'object') {
+    if (value._id && value._id !== value) return String(value._id)
+    return String(value)
   }
-
-  return value ? String(value) : ''
+  return String(value)
 }
 
 function parseCookies(cookieHeader = '') {
@@ -141,7 +142,7 @@ async function upsertRoomMember(roomCode, memberPayload) {
     return null
   }
 
-  const existingMember = room.members.find((member) => member.user.toString() === memberPayload.id)
+  const existingMember = room.members.find((member) => toId(member.user) === memberPayload.id)
 
   if (existingMember) {
     existingMember.role = memberPayload.role || existingMember.role || 'member'
@@ -167,7 +168,7 @@ async function removeRoomMember(roomCode, memberId) {
   }
 
   const initialLength = room.members.length
-  room.members = room.members.filter((member) => member.user.toString() !== memberId)
+  room.members = room.members.filter((member) => toId(member.user) !== memberId)
 
   if (room.members.length === initialLength) {
     return false
@@ -185,7 +186,7 @@ async function setMemberStatus(roomCode, memberId, status) {
     return null
   }
 
-  const member = room.members.find((entry) => entry.user.toString() === memberId)
+  const member = room.members.find((entry) => toId(entry.user) === memberId)
 
   if (!member) {
     return null
@@ -404,14 +405,16 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         const room = await Room.findOne({ code: roomCode }).populate('members.user', 'name email avatar')
         if (room && room.members.length > 0) {
           // Send all members of the room to the joining user, not just connected ones
-          const membersList = room.members.map((m) => ({
-            id: m.user._id.toString(),
-            name: m.user.name || '',
-            email: m.user.email || '',
-            avatar: m.user.avatar || '',
-            role: m.role,
-            status: m.status,
-          }))
+          const membersList = room.members
+            .filter((m) => m.user)
+            .map((m) => ({
+              id: toId(m.user),
+              name: m.user.name || '',
+              email: m.user.email || '',
+              avatar: m.user.avatar || '',
+              role: m.role,
+              status: m.status,
+            }))
           
           console.log(`[Socket] Sending initial member list to ${socket.data.userId} in room ${roomCode}`)
           socket.emit('initial-member-list', {

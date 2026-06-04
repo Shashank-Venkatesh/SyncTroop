@@ -106,7 +106,7 @@ roomSchema.pre('save', async function() {
   const uniqueMembers = [];
   
   for (const member of this.members) {
-    const userId = member.user.toString();
+    const userId = member.user._id ? member.user._id.toString() : member.user.toString();
     if (!seenUserIds.has(userId)) {
       seenUserIds.add(userId);
       uniqueMembers.push(member);

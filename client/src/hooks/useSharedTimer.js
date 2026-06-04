@@ -29,11 +29,16 @@ export function useSharedTimer(roomCode) {
     }
 
     if (timer.isRunning && isCreator) {
-      emitEvent('sync-timer', {
-        roomCode,
-        timer,
-        senderId: currentUser.id,
-      })
+      // Throttle timer sync: emit every 10 seconds, or near the end (<= 2 seconds),
+      // to avoid high socket traffic and database writes.
+      const shouldSync = timer.secondsLeft % 10 === 0 || timer.secondsLeft <= 2
+      if (shouldSync) {
+        emitEvent('sync-timer', {
+          roomCode,
+          timer,
+          senderId: currentUser.id,
+        })
+      }
     }
   }, [roomCode, timer.isRunning, timer.phase, timer.secondsLeft, timer.cycleCount, isCreator, emitEvent, currentUser])
 

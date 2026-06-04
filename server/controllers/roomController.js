@@ -1,5 +1,5 @@
 import Room from '../models/Room.js'
-import { generateRoomCode, normalizeRoomCode, serializeRoomBundle } from '../utils/roomUtils.js'
+import { generateRoomCode, normalizeRoomCode, serializeRoomBundle, toId } from '../utils/roomUtils.js'
 
 const ROOM_CODE_ATTEMPTS = 20
 
@@ -79,7 +79,7 @@ export function createRoomController(io) {
       }
 
       const existingMember = room.members.find(
-        (entry) => entry.user.toString() === roomUser._id.toString()
+        (entry) => toId(entry.user) === toId(roomUser._id)
       )
 
       if (!existingMember) {
@@ -143,14 +143,16 @@ export function createRoomController(io) {
       )
       if (!room) return res.status(404).json({ message: 'Room not found.' })
 
-      const members = room.members.map((member) => ({
-        id: member.user._id,
-        name: member.user.name,
-        email: member.user.email,
-        avatar: member.user.avatar,
-        role: member.role,
-        status: member.status,
-      }))
+      const members = room.members
+        .filter((member) => member.user)
+        .map((member) => ({
+          id: member.user._id,
+          name: member.user.name,
+          email: member.user.email,
+          avatar: member.user.avatar,
+          role: member.role,
+          status: member.status,
+        }))
 
       res.status(200).json(members)
     } catch (error) {

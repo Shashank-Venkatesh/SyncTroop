@@ -2,12 +2,13 @@ import { randomBytes } from 'node:crypto'
 
 const ROOM_CODE_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
-function toId(value) {
-  if (value && typeof value === 'object') {
-    return String(value._id || value.id || '')
+export function toId(value) {
+  if (!value) return ''
+  if (typeof value === 'object') {
+    if (value._id && value._id !== value) return String(value._id)
+    return String(value)
   }
-
-  return value ? String(value) : ''
+  return String(value)
 }
 
 export function normalizeRoomCode(roomCode) {
@@ -41,14 +42,16 @@ export function serializeRoomBundle(room, currentUser) {
       isCreator: Boolean(currentUserId && creatorId && currentUserId === creatorId),
       createdAt: room.createdAt,
     },
-    members: (room.members || []).map((member) => ({
-      id: toId(member.user),
-      name: member.user?.name || '',
-      email: member.user?.email || '',
-      avatar: member.user?.avatar || '',
-      role: member.role,
-      status: member.status,
-    })),
+    members: (room.members || [])
+      .filter((member) => member.user)
+      .map((member) => ({
+        id: toId(member.user),
+        name: member.user.name || '',
+        email: member.user.email || '',
+        avatar: member.user.avatar || '',
+        role: member.role,
+        status: member.status,
+      })),
     tasks: (room.tasks || []).map((task) => ({
       id: toId(task._id || task.id),
       title: task.title,
