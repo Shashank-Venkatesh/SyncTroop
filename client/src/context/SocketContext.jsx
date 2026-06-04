@@ -4,6 +4,10 @@ import { useApp } from './AppContext.jsx'
 
 export const SocketContext = createContext(null)
 
+let socketInstance = null
+let socketAuthToken = ''
+let socketUrl = ''
+
 function normalizeHttpUrl(value) {
   if (!value || typeof value !== 'string') {
     return ''
@@ -71,24 +75,37 @@ function getStoredToken() {
   return window.localStorage.getItem('synctroop:token') || ''
 }
 
+function createSocketInstance(token, url) {
+  return io(url, {
+    autoConnect: false,
+    withCredentials: true,
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 5,
+    secure: import.meta.env.PROD,
+    rejectUnauthorized: false,
+    auth: token ? { token } : {},
+  })
+}
+
+function getSocketInstance() {
+  const nextToken = getStoredToken()
+  const nextUrl = getSocketUrl()
+
+  if (!socketInstance || socketAuthToken !== nextToken || socketUrl !== nextUrl) {
+    socketInstance = createSocketInstance(nextToken, nextUrl)
+    socketAuthToken = nextToken
+    socketUrl = nextUrl
+  }
+
+  return socketInstance
+}
+
 export function SocketProvider({ children }) {
   const { state, actions } = useApp()
-  const [socketInstance] = useState(() =>
-    io(getSocketUrl(), {
-      autoConnect: false,
-      withCredentials: true,
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5,
-      secure: import.meta.env.PROD,
-      rejectUnauthorized: false,
-      auth: {
-        token: getStoredToken(),
-      },
-    }),
-  )
+  const socketInstance = getSocketInstance()
   const [connectionState, setConnectionState] = useState('disconnected')
   const currentUserIdRef = useRef(state.user?.id)
   const disconnectTimerRef = useRef(null)
@@ -96,14 +113,6 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     currentUserIdRef.current = state.user?.id
   }, [state.user?.id])
-
-  // Synchronise socket auth whenever the user changes. This runs as an
-  // effect, but the connect logic below also sets auth *synchronously*
-  // right before calling .connect() to close the React-batching race.
-  useEffect(() => {
-    const token = getStoredToken()
-    socketInstance.auth = token ? { token } : {}
-  }, [socketInstance, state.user?.id])
 
   // Connect the socket when a room becomes active; disconnect (with a
   // small debounce) when the room is cleared.  The debounce prevents a
@@ -120,12 +129,6 @@ export function SocketProvider({ children }) {
       }
 
       if (!socketInstance.connected) {
-        // Set auth token synchronously right before connecting to prevent
-        // the race condition where React batches the auth-update effect
-        // after this connect effect, causing the socket to handshake with
-        // a stale or empty token.
-        const token = getStoredToken()
-        socketInstance.auth = token ? { token } : {}
         socketInstance.connect()
       }
       return
@@ -346,10 +349,6 @@ export function SocketProvider({ children }) {
       if (socketInstance.connected) {
         doEmit()
       } else {
-        // Ensure auth is set, then connect and wait
-        const token = getStoredToken()
-        socketInstance.auth = token ? { token } : {}
-
         const onConnect = () => {
           socketInstance.off('connect', onConnect)
           doEmit()

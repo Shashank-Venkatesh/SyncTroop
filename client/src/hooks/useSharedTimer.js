@@ -10,9 +10,10 @@ export function useSharedTimer(roomCode) {
   const timer = state.sharedTimer
   const currentUser = state.user
   const isCreator = Boolean(currentUser && state.room && state.room.creatorId === currentUser.id)
+  const isTimerRunning = timer.isRunning
 
   useEffect(() => {
-    if (!timer.isRunning) {
+    if (!isTimerRunning) {
       return undefined
     }
 
@@ -21,7 +22,7 @@ export function useSharedTimer(roomCode) {
     }, 1000)
 
     return () => window.clearInterval(intervalId)
-  }, [timer.isRunning, actions])
+  }, [isTimerRunning, actions])
 
   useEffect(() => {
     if (!roomCode || !currentUser) {
@@ -35,7 +36,7 @@ export function useSharedTimer(roomCode) {
         senderId: currentUser.id,
       })
     }
-  }, [roomCode, timer.isRunning, timer.phase, timer.secondsLeft, timer.cycleCount, isCreator, emitEvent, currentUser])
+  }, [roomCode, timer, timer.isRunning, timer.phase, timer.secondsLeft, timer.cycleCount, isCreator, emitEvent, currentUser])
 
   const start = () => {
     if (!isCreator || timer.isRunning || !currentUser) {
