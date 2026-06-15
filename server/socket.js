@@ -440,16 +440,22 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
       }
     })
 
+    // NOTE: The 'member-joined' broadcast is already handled inside the
+    // 'join-room' handler above. A separate 'member-joined' listener is
+    // kept only for explicit client-side member announcements (e.g. after
+    // reconnection). It updates the DB but does NOT re-broadcast to avoid
+    // duplicate notifications.
     socket.on('member-joined', async (payload = {}) => {
       try {
-        const roomCode = await joinSocketRoom(socket, payload, 'member-joined')
-        console.log(`[Socket] member-joined event: user ${socket.data.userId} in room ${roomCode}`, payload)
+        const roomCode = resolveRoomCode(socket, payload)
 
         if (!roomCode) {
           console.warn(`[Socket] member-joined: invalid room code`)
           return
         }
 
+        // Only upsert the member record in the DB; skip the broadcast
+        // because join-room already emitted member-joined to the room.
         const member = normalizeMemberPayload(payload, socket.data.userId)
 
         if (!member.id) {
@@ -457,27 +463,23 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
           return
         }
 
-        const savedMember = await upsertRoomMember(roomCode, member)
-
-        if (savedMember) {
-          console.log(`[Socket] Broadcasting member-joined to room ${roomCode}:`, savedMember)
-          console.log(`[Broadcast] 📢 User "${savedMember.name}" (ID: ${savedMember.id}) JOINED room "${roomCode}"`)
-          console.log(`[Broadcast] 🎯 Sending to all clients in room: ${roomCode}`)
-          io.to(roomCode).emit('member-joined', {
-            roomCode,
-            member: savedMember,
-            senderId: socket.data.userId,
-          })
-          console.log(`[Broadcast] ✅ Broadcast complete for join event in room: ${roomCode}`)
-        }
+        await upsertRoomMember(roomCode, member)
+        console.log(`[Socket] member-joined (upsert only, no broadcast): ${member.name} in room ${roomCode}`)
       } catch (error) {
         handleSocketError('member-joined', error)
+        socket.emit('socket-error', {
+          event: 'member-joined',
+          message: 'Failed to process member join.',
+        })
       }
     })
 
     socket.on('member-left', async (payload = {}) => {
       try {
-        const roomCode = await joinSocketRoom(socket, payload, 'member-left')
+        // Resolve room code WITHOUT re-joining the socket room — the user
+        // is leaving, so calling joinSocketRoom() here was incorrect: it
+        // would re-add the socket to the room right before the leave.
+        const roomCode = resolveRoomCode(socket, payload)
 
         if (!roomCode) {
           return
@@ -493,7 +495,7 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
         if (updated) {
           console.log(`[Broadcast] 📢 User (ID: ${memberId}) LEFT room "${roomCode}"`)
-          console.log(`[Broadcast] 🎯 Sending to all clients in room: ${roomCode}`)
+          // Broadcast to remaining members BEFORE the socket leaves the room
           socket.to(roomCode).emit('member-left', {
             roomCode,
             memberId,
@@ -501,8 +503,16 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
           })
           console.log(`[Broadcast] ✅ Broadcast complete for leave event in room: ${roomCode}`)
         }
+
+        // Now leave the Socket.io room and clear local state
+        socket.leave(roomCode)
+        socket.data.roomCode = ''
       } catch (error) {
         handleSocketError('member-left', error)
+        socket.emit('socket-error', {
+          event: 'member-left',
+          message: 'Failed to process member leave.',
+        })
       }
     })
 
@@ -531,6 +541,10 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         }
       } catch (error) {
         handleSocketError('chat-message', error)
+        socket.emit('socket-error', {
+          event: 'chat-message',
+          message: 'Failed to send message.',
+        })
       }
     })
 
@@ -546,6 +560,10 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         await broadcastRoomTasks(io, roomCode)
       } catch (error) {
         handleSocketError('task-update', error)
+        socket.emit('socket-error', {
+          event: 'task-update',
+          message: 'Failed to update task.',
+        })
       }
     })
 
@@ -600,13 +618,33 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
         return
       }
 
+      // Check if the user still has OTHER connected sockets in the same
+      // room. If they do (e.g. multiple tabs), don't mark them as 'away'.
+      const roomSockets = io.sockets.adapter.rooms.get(roomCode)
+      if (roomSockets) {
+        for (const socketId of roomSockets) {
+          if (socketId === socket.id) {
+            continue
+          }
+
+          const otherSocket = io.sockets.sockets.get(socketId)
+
+          if (otherSocket && toId(otherSocket.data.userId) === memberId) {
+            console.log(`[Socket] User ${memberId} still has another socket (${socketId}) in room ${roomCode}; skipping 'away' status.`)
+            return
+          }
+        }
+      }
+
       setMemberStatus(roomCode, memberId, 'away')
         .then((updatedMember) => {
           if (!updatedMember) {
             return
           }
 
-          socket.to(roomCode).emit('member-status', {
+          // Use io.to() instead of socket.to() because the socket has
+          // already been removed from the room by the time this fires.
+          io.to(roomCode).emit('member-status', {
             roomCode,
             member: updatedMember,
             senderId: memberId,
