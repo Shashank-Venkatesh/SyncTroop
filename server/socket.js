@@ -532,6 +532,8 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
         const savedMessage = await saveRoomMessage(roomCode, message)
 
+
+  
         if (savedMessage) {
           io.to(roomCode).emit('chat-message', {
             roomCode,

@@ -2,6 +2,7 @@ services:
   - type: web
     name: synctroops-backend
     runtime: node
+    rootDir: server
     buildCommand: npm install
     startCommand: npm start
     envVars:
@@ -23,6 +24,7 @@ services:
   - type: web
     name: synctroops-frontend
     runtime: node
+    rootDir: client
     buildCommand: npm install && npm run build
     startCommand: npm run preview
     staticPublishPath: dist
