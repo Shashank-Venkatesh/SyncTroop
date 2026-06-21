@@ -1,7 +1,5 @@
 import axios from 'axios'
 
-const PROD_BACKEND = 'https://synctroops.onrender.com'
-
 // Determine the correct API base URL
 const getBaseUrl = () => {
   // If running locally, route api calls through the local proxy/origin

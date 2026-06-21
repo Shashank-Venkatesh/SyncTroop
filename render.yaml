@@ -32,8 +32,8 @@ services:
       - key: NODE_ENV
         value: production
       - key: VITE_API_URL
-        value: https://synctroops.onrender.com
+        value: https://synctroop.onrender.com
         scope: build
       - key: VITE_SOCKET_URL
-        value: https://synctroops.onrender.com
+        value: https://synctroop.onrender.com
         scope: build

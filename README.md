@@ -212,7 +212,7 @@ Make sure the frontend origin is included in `CLIENT_URL` or `CLIENT_URLS` in th
 
 ## Production Links
 
-- Backend: https://synctroops.onrender.com
+- Backend: https://synctroop.onrender.com
 - Frontend: https://synctroop.vercel.app/
 
 ## License
