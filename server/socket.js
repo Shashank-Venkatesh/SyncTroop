@@ -423,16 +423,39 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
           })
 
           // Broadcast member-joined to OTHER sockets in the room so existing
-          // members see the new joiner in real time. This replaces the REST
-          // handler broadcast which fired before any socket had joined the room.
+          // members see the new joiner in real time. Skip the broadcast if
+          // the member was already online (reconnection case) to avoid
+          // duplicate "X joined" notifications.
           const joiner = membersList.find((m) => m.id === socket.data.userId)
           if (joiner) {
-            console.log(`[Socket] Broadcasting member-joined for ${joiner.name} to room ${roomCode}`)
-            socket.to(roomCode).emit('member-joined', {
-              roomCode,
-              member: joiner,
-              senderId: socket.data.userId,
-            })
+            const wasAlreadyOnline = updatedMember && updatedMember.status === 'online'
+              && room.members.some((m) => toId(m.user) === socket.data.userId && m.status === 'online')
+
+            // Only check if there are OTHER sockets for this user already in the room
+            // (i.e., this is a genuine reconnect, not a first join)
+            const roomSockets = io.sockets.adapter.rooms.get(roomCode)
+            let userAlreadyInRoom = false
+            if (roomSockets) {
+              for (const sid of roomSockets) {
+                if (sid === socket.id) continue
+                const s = io.sockets.sockets.get(sid)
+                if (s && toId(s.data.userId) === socket.data.userId) {
+                  userAlreadyInRoom = true
+                  break
+                }
+              }
+            }
+
+            if (!userAlreadyInRoom) {
+              console.log(`[Socket] Broadcasting member-joined for ${joiner.name} to room ${roomCode}`)
+              socket.to(roomCode).emit('member-joined', {
+                roomCode,
+                member: joiner,
+                senderId: socket.data.userId,
+              })
+            } else {
+              console.log(`[Socket] Skipping member-joined broadcast for ${joiner.name} (reconnect, already in room ${roomCode})`)
+            }
           }
         }
       } catch (error) {
@@ -532,8 +555,6 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
         const savedMessage = await saveRoomMessage(roomCode, message)
 
-
-  
         if (savedMessage) {
           io.to(roomCode).emit('chat-message', {
             roomCode,

@@ -87,7 +87,7 @@ export function SocketProvider({ children }) {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
       secure: import.meta.env.PROD,
       rejectUnauthorized: false,
       auth: {
@@ -111,6 +111,29 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     const token = getStoredToken()
     socketInstance.auth = token ? { token } : {}
+  }, [socketInstance, state.user?.id])
+
+  // When the user identity changes (login as different user), disconnect
+  // the current socket so it will reconnect with the new auth token.
+  // This prevents cross-user socket sessions where the socket handshakes
+  // with a stale token from the previous user.
+  const prevUserIdRef = useRef(state.user?.id)
+  useEffect(() => {
+    const currentId = state.user?.id
+    const previousId = prevUserIdRef.current
+    prevUserIdRef.current = currentId
+
+    // Only disconnect if the user identity actually changed (not on mount)
+    if (previousId && currentId && previousId !== currentId) {
+      console.log(`[Socket] User identity changed (${previousId} → ${currentId}), disconnecting socket for re-auth`)
+      socketInstance.disconnect()
+    }
+
+    // If user logged out, disconnect immediately
+    if (previousId && !currentId) {
+      console.log('[Socket] User logged out, disconnecting socket')
+      socketInstance.disconnect()
+    }
   }, [socketInstance, state.user?.id])
 
   // Connect the socket when a room becomes active; disconnect (with a
@@ -160,7 +183,21 @@ export function SocketProvider({ children }) {
   }, [socketInstance, state.room?.code])
 
   useEffect(() => {
-    const handleConnect = () => setConnectionState('connected')
+    const handleConnect = () => {
+      setConnectionState('connected')
+
+      // On reconnection, automatically re-join the active room so the
+      // user doesn't lose real-time updates after a network blip.
+      const activeRoomCode = stateRef.current.room?.code
+      const userId = currentUserIdRef.current
+      if (activeRoomCode && userId) {
+        console.log(`[Socket] Reconnected — auto re-joining room ${activeRoomCode}`)
+        socketInstance.emit('join-room', {
+          roomCode: activeRoomCode,
+          senderId: userId,
+        })
+      }
+    }
     const handleDisconnect = () => setConnectionState('disconnected')
     const handleConnectError = (error) => {
       console.error('[Socket] Connection error:', error?.message || error)

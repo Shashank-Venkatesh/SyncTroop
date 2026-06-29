@@ -89,6 +89,10 @@ export function AuthModal() {
 
       const response = activeTab === 'signup' ? await signupUser(payload) : await loginUser(payload)
 
+      // Clear any stale room data from a previous user session BEFORE
+      // setting the new user. This prevents the new user from briefly
+      // seeing the old user's room name/creator in the UI.
+      actions.clearRoom()
       actions.setUser(response.user)
       if (typeof window !== 'undefined' && response.token) {
         window.localStorage.setItem('synctroop:token', response.token)

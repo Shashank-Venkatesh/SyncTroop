@@ -72,17 +72,57 @@ function normalizeTask(task) {
 
 function appReducer(state, action) {
   switch (action.type) {
-    case 'SET_USER':
+    case 'SET_USER': {
+      const incomingUserId = action.payload?.id || action.payload?._id || ''
+      const currentUserId = state.user?.id || state.user?._id || ''
+
+      // When a different user logs in, clear all room-scoped state so the
+      // new user doesn't inherit stale room data from the previous session.
+      const isUserSwitch = Boolean(currentUserId && incomingUserId && currentUserId !== incomingUserId)
+
+      if (isUserSwitch) {
+        // Clean up localStorage for the old session
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(STORAGE_KEYS.room)
+          window.localStorage.removeItem(STORAGE_KEYS.sharedTimer)
+        }
+
+        return {
+          ...state,
+          user: action.payload,
+          room: null,
+          members: [],
+          tasks: [],
+          messages: [],
+          sharedTimer: createInitialSharedTimer(state.settings),
+        }
+      }
+
       return {
         ...state,
         user: action.payload,
       }
+    }
 
-    case 'CLEAR_USER':
+    case 'CLEAR_USER': {
+      // Wipe all room-scoped state and localStorage keys so nothing
+      // from the previous user session leaks to the next login.
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(STORAGE_KEYS.room)
+        window.localStorage.removeItem(STORAGE_KEYS.sharedTimer)
+        window.localStorage.removeItem('synctroop:token')
+      }
+
       return {
         ...state,
         user: null,
+        room: null,
+        members: [],
+        tasks: [],
+        messages: [],
+        sharedTimer: createInitialSharedTimer(state.settings),
       }
+    }
 
     case 'SET_SELECTED_MODE':
       return {
