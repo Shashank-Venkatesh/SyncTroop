@@ -558,7 +558,7 @@ export function GroupRoomPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {[
-                ['Members', `${state.members.length} joined`],
+                ['Members', `${state.members.length} / ${room?.maxMembers || 10} joined`],
                 ['Tasks', `${state.tasks.length} active`],
                 ['Chat', `${state.messages.length} messages`],
                 ['Status', connectionLabel],

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../context/AppContext.jsx'
 import { loginUser, signupUser } from '../../services/api.js'
+import { SESSION_KEYS, writeSessionString } from '../../utils/sessionStorage.js'
 import { Button } from '../ui/Button.jsx'
 import { Input } from '../ui/Input.jsx'
 import { Modal } from '../ui/Modal.jsx'
@@ -95,7 +96,7 @@ export function AuthModal() {
       actions.clearRoom()
       actions.setUser(response.user)
       if (typeof window !== 'undefined' && response.token) {
-        window.localStorage.setItem('synctroop:token', response.token)
+        writeSessionString(SESSION_KEYS.token, response.token)
       }
       actions.closeAuthModal()
       navigate(authModal.mode === 'group' ? '/group' : '/solo')

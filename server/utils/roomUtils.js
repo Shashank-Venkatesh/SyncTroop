@@ -2,6 +2,37 @@ import { randomBytes } from 'node:crypto'
 
 const ROOM_CODE_CHARACTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
+export const MIN_ROOM_MEMBERS = 2
+export const MAX_ROOM_MEMBERS = 100
+
+export function parseMaxMembers(value) {
+  const parsed = Number(value)
+
+  if (!Number.isInteger(parsed) || parsed < MIN_ROOM_MEMBERS || parsed > MAX_ROOM_MEMBERS) {
+    return null
+  }
+
+  return parsed
+}
+
+export function canAddMember(room) {
+  if (!room?.members) {
+    return false
+  }
+
+  const limit = parseMaxMembers(room.maxMembers) || MAX_ROOM_MEMBERS
+  return room.members.length < limit
+}
+
+export function getRemainingMemberSlots(room) {
+  if (!room?.members) {
+    return 0
+  }
+
+  const limit = parseMaxMembers(room.maxMembers) || MAX_ROOM_MEMBERS
+  return Math.max(0, limit - room.members.length)
+}
+
 export function toId(value) {
   if (!value) return ''
   if (typeof value === 'object') {
@@ -37,6 +68,7 @@ export function serializeRoomBundle(room, currentUser) {
     room: {
       code: room.code,
       name: room.name,
+      maxMembers: room.maxMembers || 10,
       creatorId,
       creatorName: room.creator?.name || room.creatorName || '',
       isCreator: Boolean(currentUserId && creatorId && currentUserId === creatorId),

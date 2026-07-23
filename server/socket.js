@@ -2,7 +2,7 @@ import { Server as SocketIOServer } from 'socket.io'
 import jwt from 'jsonwebtoken'
 import Room from './models/Room.js'
 import User from './models/User.js'
-import { normalizeRoomCode } from './utils/roomUtils.js'
+import { normalizeRoomCode, canAddMember } from './utils/roomUtils.js'
 
 function toId(value) {
   if (!value) return ''
@@ -107,9 +107,11 @@ function normalizeMemberPayload(payload = {}, authenticatedUserId = '') {
   }
 }
 
+const MAX_MESSAGE_LENGTH = 2000
+
 function normalizeMessagePayload(payload = {}) {
   const source = payload.message && typeof payload.message === 'object' ? payload.message : payload
-  const messageText = String(source.message || source.text || '').trim()
+  const messageText = String(source.message || source.text || '').trim().slice(0, MAX_MESSAGE_LENGTH)
 
   return {
     id: toId(source.id || source._id),
@@ -148,6 +150,10 @@ async function upsertRoomMember(roomCode, memberPayload) {
     existingMember.role = memberPayload.role || existingMember.role || 'member'
     existingMember.status = memberPayload.status || 'online'
   } else {
+    if (!canAddMember(room)) {
+      return null
+    }
+
     room.members.push({
       user: memberPayload.id,
       role: memberPayload.role || 'member',
@@ -277,7 +283,7 @@ async function applyTaskUpdate(roomCode, payload, userId) {
     }
 
     room.tasks.push({
-      title: String(taskPayload.title).trim(),
+      title: String(taskPayload.title).trim().slice(0, 200),
       assignedTo: taskPayload.assignedToId,
       completed: false,
     })
@@ -328,6 +334,27 @@ async function updateRoomTimer(roomCode, timerPayload) {
 
 function handleSocketError(eventName, error) {
   console.error(`Socket event ${eventName} failed:`, error)
+}
+
+// Minimal in-memory token bucket to stop a single socket from flooding a
+// room with messages. Not a substitute for infra-level rate limiting, but
+// enough to blunt an accidental (or malicious) tight loop from one client.
+const CHAT_RATE_LIMIT_MAX = 10
+const CHAT_RATE_LIMIT_WINDOW_MS = 10000
+
+function isChatRateLimited(socket) {
+  const now = Date.now()
+  const bucket = socket.data.chatTimestamps || []
+  const recent = bucket.filter((ts) => now - ts < CHAT_RATE_LIMIT_WINDOW_MS)
+
+  if (recent.length >= CHAT_RATE_LIMIT_MAX) {
+    socket.data.chatTimestamps = recent
+    return true
+  }
+
+  recent.push(now)
+  socket.data.chatTimestamps = recent
+  return false
 }
 
 export function initializeSocket(server, { origin = 'http://localhost:5173' } = {}) {
@@ -541,6 +568,14 @@ export function initializeSocket(server, { origin = 'http://localhost:5173' } = 
 
     socket.on('chat-message', async (payload = {}) => {
       try {
+        if (isChatRateLimited(socket)) {
+          socket.emit('socket-error', {
+            event: 'chat-message',
+            message: 'You are sending messages too quickly. Please slow down.',
+          })
+          return
+        }
+
         const roomCode = await joinSocketRoom(socket, payload, 'chat-message')
 
         if (!roomCode) {

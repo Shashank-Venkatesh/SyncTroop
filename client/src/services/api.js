@@ -1,12 +1,8 @@
 import axios from 'axios'
+import { clearSession, readSessionString, SESSION_KEYS } from '../utils/sessionStorage.js'
 
 // Determine the correct API base URL
 const getBaseUrl = () => {
-  // If running locally, route api calls through the local proxy/origin
-  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    return window.location.origin
-  }
-
   const explicitApiUrl = import.meta.env.VITE_API_URL
 
   if (explicitApiUrl) {
@@ -24,6 +20,11 @@ const getBaseUrl = () => {
     } catch {
       return explicitApiUrl
     }
+  }
+
+  // If running locally, route api calls through the local proxy/origin
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return window.location.origin
   }
 
   if (import.meta.env.PROD) {
@@ -50,7 +51,7 @@ function getAuthToken() {
     return ''
   }
 
-  return window.localStorage.getItem('synctroop:token') || ''
+  return readSessionString(SESSION_KEYS.token)
 }
 
 // Add request interceptor to attach auth token when available
@@ -72,10 +73,8 @@ api.interceptors.response.use(
   response => response,
   error => {
     if (error.response?.status === 401) {
-      // Clear user data on unauthorized
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('synctroop:user')
-        localStorage.removeItem('synctroop:token')
+        clearSession()
         window.location.href = '/'
       }
     }

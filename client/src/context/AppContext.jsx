@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
 import { createInitialSharedTimer, getPhaseDuration, PHASES } from '../utils/pomodoro.js'
+import { SESSION_KEYS, clearRoomSession } from '../utils/sessionStorage.js'
 
 const STORAGE_KEYS = {
-  user: 'synctroop:user',
+  user: SESSION_KEYS.user,
   settings: 'synctroop:settings',
-  room: 'synctroop:room',
-  sharedTimer: 'synctroop:sharedTimer',
+  room: SESSION_KEYS.room,
+  sharedTimer: SESSION_KEYS.sharedTimer,
 }
 
 const defaultSettings = {
@@ -22,7 +23,8 @@ function readStoredValue(key, fallbackValue) {
   }
 
   try {
-    const storedValue = window.localStorage.getItem(key)
+    const storage = key === STORAGE_KEYS.settings ? window.localStorage : window.sessionStorage
+    const storedValue = storage.getItem(key)
 
     return storedValue ? JSON.parse(storedValue) : fallbackValue
   } catch {
@@ -81,10 +83,8 @@ function appReducer(state, action) {
       const isUserSwitch = Boolean(currentUserId && incomingUserId && currentUserId !== incomingUserId)
 
       if (isUserSwitch) {
-        // Clean up localStorage for the old session
         if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(STORAGE_KEYS.room)
-          window.localStorage.removeItem(STORAGE_KEYS.sharedTimer)
+          clearRoomSession()
         }
 
         return {
@@ -105,12 +105,9 @@ function appReducer(state, action) {
     }
 
     case 'CLEAR_USER': {
-      // Wipe all room-scoped state and localStorage keys so nothing
-      // from the previous user session leaks to the next login.
       if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(STORAGE_KEYS.room)
-        window.localStorage.removeItem(STORAGE_KEYS.sharedTimer)
-        window.localStorage.removeItem('synctroop:token')
+        clearRoomSession()
+        window.sessionStorage.removeItem(SESSION_KEYS.token)
       }
 
       return {
@@ -414,9 +411,9 @@ export function AppProvider({ children }) {
     }
 
     if (state.user) {
-      window.localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(state.user))
+      window.sessionStorage.setItem(STORAGE_KEYS.user, JSON.stringify(state.user))
     } else {
-      window.localStorage.removeItem(STORAGE_KEYS.user)
+      window.sessionStorage.removeItem(STORAGE_KEYS.user)
     }
   }, [state.user])
 
@@ -434,9 +431,9 @@ export function AppProvider({ children }) {
     }
 
     if (state.room) {
-      window.localStorage.setItem(STORAGE_KEYS.room, JSON.stringify(state.room))
+      window.sessionStorage.setItem(STORAGE_KEYS.room, JSON.stringify(state.room))
     } else {
-      window.localStorage.removeItem(STORAGE_KEYS.room)
+      window.sessionStorage.removeItem(STORAGE_KEYS.room)
     }
   }, [state.room])
 
@@ -445,7 +442,7 @@ export function AppProvider({ children }) {
       return
     }
 
-    window.localStorage.setItem(STORAGE_KEYS.sharedTimer, JSON.stringify(state.sharedTimer))
+    window.sessionStorage.setItem(STORAGE_KEYS.sharedTimer, JSON.stringify(state.sharedTimer))
   }, [state.sharedTimer])
 
   const actions = useMemo(() => {

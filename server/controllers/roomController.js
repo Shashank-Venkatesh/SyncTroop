@@ -1,5 +1,14 @@
 import Room from '../models/Room.js'
-import { generateRoomCode, normalizeRoomCode, serializeRoomBundle, toId } from '../utils/roomUtils.js'
+import {
+  generateRoomCode,
+  normalizeRoomCode,
+  parseMaxMembers,
+  canAddMember,
+  MIN_ROOM_MEMBERS,
+  MAX_ROOM_MEMBERS,
+  serializeRoomBundle,
+  toId,
+} from '../utils/roomUtils.js'
 
 const ROOM_CODE_ATTEMPTS = 20
 
@@ -7,16 +16,27 @@ const isDuplicateRoomCodeError = (error) => error?.code === 11000 || error?.code
 
 const resolveRoomUser = async (req) => req.user || null
 
-const createRoomDocument = async ({ roomName, user }) => {
+const createRoomDocument = async ({ roomName, maxMembers, user }) => {
+  const limit = parseMaxMembers(maxMembers)
+
+  if (!limit) {
+    const error = new Error(`Member limit must be between ${MIN_ROOM_MEMBERS} and ${MAX_ROOM_MEMBERS}.`)
+    error.statusCode = 400
+    throw error
+  }
+
   let candidateCode = ''
 
   for (let attempt = 0; attempt < ROOM_CODE_ATTEMPTS; attempt += 1) {
     if (!candidateCode) candidateCode = generateRoomCode()
 
     try {
+      const trimmedRoomName = String(roomName || '').trim().slice(0, 80)
+
       return await Room.create({
         code: candidateCode,
-        name: roomName || `${user.name}'s Room`,
+        name: trimmedRoomName || `${user.name}'s Room`,
+        maxMembers: limit,
         creator: user._id,
         members: [{ user: user._id, role: 'creator', status: 'online' }],
         tasks: [],
@@ -36,7 +56,7 @@ export function createRoomController(io) {
   const createRoom = async (req, res) => {
     try {
       console.log('[Room] createRoom called, req.user:', req.user?._id)
-      const { roomName } = req.body
+      const { roomName, maxMembers } = req.body
       console.log('[Room] Resolving user...')
       const roomUser = await resolveRoomUser(req)
       console.log('[Room] User resolved:', roomUser?._id)
@@ -46,15 +66,20 @@ export function createRoomController(io) {
       }
 
       console.log('[Room] Creating room document...')
-      const room = await createRoomDocument({ roomName, user: roomUser })
+      const room = await createRoomDocument({ roomName, maxMembers, user: roomUser })
       console.log('[Room] Room created:', room.code)
 
       return fetchRoomBundle(room.code, roomUser, res, io)
     } catch (error) {
       console.error('[Room] createRoom error:', error)
+
+      if (error.statusCode === 400) {
+        return res.status(400).json({ message: error.message })
+      }
+
       const message = process.env.NODE_ENV === 'production'
         ? 'Unable to create room. Please try again.'
-        : 'Server Error: ' + error.message;
+        : 'Server Error: ' + error.message
       res.status(500).json({ message })
     }
   }
@@ -83,6 +108,12 @@ export function createRoomController(io) {
       )
 
       if (!existingMember) {
+        if (!canAddMember(room)) {
+          return res.status(400).json({
+            message: `Room is full. Maximum capacity of ${room.maxMembers} reached.`,
+          })
+        }
+
         room.members.push({ user: roomUser._id, role: 'member', status: 'online' })
       } else {
         existingMember.status = 'online'

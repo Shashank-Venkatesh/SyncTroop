@@ -1,6 +1,7 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useApp } from './AppContext.jsx'
+import { clearSession, readSessionString, SESSION_KEYS } from '../utils/sessionStorage.js'
 
 export const SocketContext = createContext(null)
 
@@ -24,12 +25,6 @@ function normalizeHttpUrl(value) {
 }
 
 function getSocketUrl() {
-  // If running locally, route socket connections through the local proxy/origin
-  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    console.log('[Socket] Localhost detected, routing socket connection to:', window.location.origin)
-    return window.location.origin
-  }
-
   // Try explicit socket URL first
   const explicitSocketUrl = normalizeHttpUrl(import.meta.env.VITE_SOCKET_URL)
 
@@ -59,6 +54,12 @@ function getSocketUrl() {
     }
   }
 
+  // If running locally, route socket connections through the local proxy/origin
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    console.log('[Socket] Localhost detected, routing socket connection to:', window.location.origin)
+    return window.location.origin
+  }
+
   if (typeof window === 'undefined') {
     return ''
   }
@@ -74,7 +75,7 @@ function getStoredToken() {
     return ''
   }
 
-  return window.localStorage.getItem('synctroop:token') || ''
+  return readSessionString(SESSION_KEYS.token)
 }
 
 export function SocketProvider({ children }) {
@@ -204,10 +205,9 @@ export function SocketProvider({ children }) {
       setConnectionState('error')
 
       if (error?.message === 'UNAUTHORIZED') {
-        console.warn('[Socket] Unauthorized connection attempt. Clearing token.')
+        console.warn('[Socket] Unauthorized connection attempt. Clearing session.')
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('synctroop:user')
-          localStorage.removeItem('synctroop:token')
+          clearSession()
           actions.clearUser()
           actions.clearRoom()
           window.location.href = '/'

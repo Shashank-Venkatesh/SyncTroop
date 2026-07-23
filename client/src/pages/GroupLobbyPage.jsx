@@ -4,20 +4,34 @@ import { BrandMark } from '../components/ui/BrandMark.jsx'
 import { Button } from '../components/ui/Button.jsx'
 import { Card } from '../components/ui/Card.jsx'
 import { Input } from '../components/ui/Input.jsx'
+import { Modal } from '../components/ui/Modal.jsx'
 import { useApp } from '../context/AppContext.jsx'
 import { createRoom, joinRoom } from '../services/api.js'
+import { MAX_ROOM_MEMBERS, MIN_ROOM_MEMBERS, parseMaxMembers, validateMaxMembersInput } from '../utils/room.js'
+import {
+  readSessionItem,
+  SESSION_KEYS,
+  writeSessionItem,
+} from '../utils/sessionStorage.js'
 
 export function GroupLobbyPage() {
   const { state, actions } = useApp()
   const navigate = useNavigate()
   const userFirstName = state.user?.name?.split(' ')[0] || 'My'
   const [roomName, setRoomName] = useState(`${userFirstName}'s room`)
-  const [roomCode, setRoomCode] = useState('')
+  const [roomCode, setRoomCode] = useState(() => readSessionItem(SESSION_KEYS.draftRoomCode, ''))
+  const [maxMembers, setMaxMembers] = useState(() => {
+    const storedLimit = readSessionItem(SESSION_KEYS.preferredMaxMembers, '')
+    return storedLimit ? String(storedLimit) : ''
+  })
+  const [maxMembersError, setMaxMembersError] = useState('')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [busyAction, setBusyAction] = useState(null)
+  const [confirmCreateOpen, setConfirmCreateOpen] = useState(false)
 
   const activeRoom = useMemo(() => state.room, [state.room])
+  const parsedMaxMembers = useMemo(() => parseMaxMembers(maxMembers), [maxMembers])
 
   useEffect(() => {
     if (!state.user) {
@@ -30,20 +44,54 @@ export function GroupLobbyPage() {
     setRoomName(`${userFirstName}'s room`)
   }, [userFirstName])
 
-  const handleCreateRoom = async () => {
+  useEffect(() => {
+    writeSessionItem(SESSION_KEYS.draftRoomCode, roomCode)
+  }, [roomCode])
+
+  useEffect(() => {
+    if (parsedMaxMembers) {
+      writeSessionItem(SESSION_KEYS.preferredMaxMembers, parsedMaxMembers)
+    } else {
+      writeSessionItem(SESSION_KEYS.preferredMaxMembers, null)
+    }
+  }, [parsedMaxMembers])
+
+  const handleCreateClick = () => {
     if (!state.user) {
       actions.openAuthModal('group', 'login')
       navigate('/', { replace: true })
       return
     }
 
+    const validationError = validateMaxMembersInput(maxMembers)
+    setMaxMembersError(validationError)
+    setError('')
+
+    if (validationError) {
+      return
+    }
+
+    setConfirmCreateOpen(true)
+  }
+
+  const handleCreateRoom = async () => {
+    const memberLimit = parseMaxMembers(maxMembers)
+
+    if (!memberLimit) {
+      setMaxMembersError(validateMaxMembersInput(maxMembers))
+      setConfirmCreateOpen(false)
+      return
+    }
+
     setBusyAction('create')
     setStatus('')
     setError('')
+    setConfirmCreateOpen(false)
 
     try {
       const payload = {
         roomName: roomName.trim() || `${state.user.name.split(' ')[0]}'s Focus Room`,
+        maxMembers: memberLimit,
       }
 
       const bundle = await createRoom(payload)
@@ -51,7 +99,7 @@ export function GroupLobbyPage() {
       actions.setRoomBundle(bundle)
 
       navigate(`/group/${bundle.room.code}`)
-      setStatus(`Room ${bundle.room.code} created.`)
+      setStatus(`Room ${bundle.room.code} created for up to ${memberLimit} people.`)
     } catch (requestError) {
       setError(requestError?.response?.data?.message || 'Could not create the room right now.')
     } finally {
@@ -149,18 +197,35 @@ export function GroupLobbyPage() {
               placeholder="Thursday planning room"
             />
 
+            <Input
+              label="How many people can join?"
+              type="number"
+              value={maxMembers}
+              onChange={(event) => {
+                setMaxMembers(event.target.value)
+                if (maxMembersError) {
+                  setMaxMembersError('')
+                }
+              }}
+              placeholder={`${MIN_ROOM_MEMBERS} to ${MAX_ROOM_MEMBERS}`}
+              min={MIN_ROOM_MEMBERS}
+              max={MAX_ROOM_MEMBERS}
+              error={maxMembersError}
+              hint="Includes you. Only this many people can enter the room."
+            />
+
             <Button
               fullWidth
               size="lg"
-              onClick={handleCreateRoom}
+              onClick={handleCreateClick}
               disabled={busyAction === 'create'}
             >
               {busyAction === 'create' ? 'Creating...' : 'Create Room'}
             </Button>
 
             <p className="text-sm leading-6 text-slate-400">
-              A fresh room code is generated automatically. The creator starts the synced timer
-              and can assign tasks.
+              A fresh room code is generated automatically. The member limit is set once at
+              creation and cannot be changed later.
             </p>
           </Card>
 
@@ -189,12 +254,39 @@ export function GroupLobbyPage() {
             </Button>
 
             <p className="text-sm leading-6 text-slate-400">
-              Everyone in the room shares timer updates, task state, member presence, and chat
-              messages in realtime.
+              Joining is blocked once the room reaches the creator&apos;s member limit.
             </p>
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={confirmCreateOpen}
+        onClose={() => setConfirmCreateOpen(false)}
+        title="Confirm room size"
+        description="This limit applies to everyone entering the room, including you."
+        maxWidth="max-w-lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button variant="secondary" onClick={() => setConfirmCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateRoom} disabled={busyAction === 'create'}>
+              {busyAction === 'create' ? 'Creating...' : `Create for ${parsedMaxMembers} people`}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-sm leading-6 text-slate-300">
+          <p>
+            You are about to create <span className="font-medium text-white">{roomName.trim() || `${userFirstName}'s room`}</span>{' '}
+            with a maximum of <span className="font-medium text-white">{parsedMaxMembers}</span> members.
+          </p>
+          <p>
+            Once the room is full, no one else can join until someone leaves.
+          </p>
+        </div>
+      </Modal>
     </div>
   )
 }
